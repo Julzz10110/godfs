@@ -27,15 +27,25 @@ type Client struct {
 }
 
 // New connects to the master at masterAddr (e.g. "localhost:9090").
+// Chunk size for splitting writes defaults to 64 MiB; it must match the master's chunk size.
+// Use [NewWithChunkSize] when the master uses a different value.
 func New(masterAddr string) (*Client, error) {
+	return NewWithChunkSize(masterAddr, defaultChunkSize)
+}
+
+// NewWithChunkSize is like [New] but sets the client-side chunk boundary used for splitting writes.
+func NewWithChunkSize(masterAddr string, chunkSize int64) (*Client, error) {
 	conn, err := grpc.NewClient(masterAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
+	if chunkSize <= 0 {
+		chunkSize = defaultChunkSize
+	}
 	return &Client{
 		master:    godfsv1.NewMasterServiceClient(conn),
 		conn:      conn,
-		chunkSize: defaultChunkSize,
+		chunkSize: chunkSize,
 		chCon:     map[string]*grpc.ClientConn{},
 	}, nil
 }
@@ -127,8 +137,12 @@ func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 	var pos int64
 	remain := int64(len(data))
 	for remain > 0 {
-		chunkOff := pos % c.chunkSize
-		maxInChunk := c.chunkSize - chunkOff
+		cs := c.chunkSize
+		if cs <= 0 {
+			cs = defaultChunkSize
+		}
+		chunkOff := pos % cs
+		maxInChunk := cs - chunkOff
 		n := remain
 		if n > maxInChunk {
 			n = maxInChunk
@@ -155,10 +169,11 @@ func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 		if err := ws.Send(&godfsv1.WriteChunkRequest{
 			Frame: &godfsv1.WriteChunkRequest_Meta{
 				Meta: &godfsv1.WriteChunkMeta{
-					ChunkId:         pw.ChunkId,
-					OffsetInChunk:   pw.ChunkOffset,
-					LeaseId:         pw.LeaseId,
-					Version:         pw.Version,
+					ChunkId:             pw.ChunkId,
+					OffsetInChunk:       pw.ChunkOffset,
+					LeaseId:             pw.LeaseId,
+					Version:             pw.Version,
+					SecondaryAddresses:  pw.SecondaryAddresses,
 				},
 			},
 		}); err != nil {
@@ -220,33 +235,49 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 		if len(gr.ReplicaAddresses) == 0 {
 			return nil, fmt.Errorf("no replicas")
 		}
-		cc, err := c.chunkConn(gr.ReplicaAddresses[0])
-		if err != nil {
-			return nil, err
-		}
-		ch := godfsv1.NewChunkServiceClient(cc)
-		rc, err := ch.ReadChunk(ctx, &godfsv1.ReadChunkRequest{
-			ChunkId:       gr.ChunkId,
-			OffsetInChunk: gr.ChunkOffset,
-			Length:        gr.AvailableInChunk,
-		})
-		if err != nil {
-			return nil, err
-		}
-		dstOff := off
-		for {
-			msg, err := rc.Recv()
-			if err == io.EOF {
+		var readErr error
+		for _, rep := range gr.ReplicaAddresses {
+			cc, err := c.chunkConn(rep)
+			if err != nil {
+				readErr = err
+				continue
+			}
+			ch := godfsv1.NewChunkServiceClient(cc)
+			rc, err := ch.ReadChunk(ctx, &godfsv1.ReadChunkRequest{
+				ChunkId:         gr.ChunkId,
+				OffsetInChunk:   gr.ChunkOffset,
+				Length:          gr.AvailableInChunk,
+			})
+			if err != nil {
+				readErr = err
+				continue
+			}
+			dstOff := off
+			var streamErr error
+			for {
+				msg, err := rc.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					streamErr = err
+					break
+				}
+				n := copy(out[dstOff:], msg.Data)
+				dstOff += int64(n)
+				if n < len(msg.Data) {
+					streamErr = fmt.Errorf("short buffer")
+					break
+				}
+			}
+			if streamErr == nil {
+				readErr = nil
 				break
 			}
-			if err != nil {
-				return nil, err
-			}
-			n := copy(out[dstOff:], msg.Data)
-			dstOff += int64(n)
-			if n < len(msg.Data) {
-				return nil, fmt.Errorf("short buffer")
-			}
+			readErr = streamErr
+		}
+		if readErr != nil {
+			return nil, readErr
 		}
 		off += gr.AvailableInChunk
 	}

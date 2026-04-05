@@ -8,7 +8,7 @@ import (
 )
 
 func TestStoreMkdirCreateWrite(t *testing.T) {
-	s := NewStore(1024)
+	s := NewStore(1024, 1)
 	ctx := context.Background()
 
 	if err := s.RegisterNode(ctx, domain.ChunkNode{ID: "n1", GRPCAddress: "127.0.0.1:9"}); err != nil {
@@ -21,7 +21,7 @@ func TestStoreMkdirCreateWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cid, addr, _, idx, off, _, ver, err := s.PrepareWrite(ctx, "/data/a.txt", 0, 10)
+	cid, addr, _, _, idx, off, _, ver, err := s.PrepareWrite(ctx, "/data/a.txt", 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

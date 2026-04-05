@@ -18,7 +18,8 @@ import (
 type Store struct {
 	mu sync.RWMutex
 
-	chunkSize int64
+	chunkSize         int64
+	replicationFactor int
 
 	nodes   []domain.ChunkNode
 	rr      int
@@ -32,6 +33,12 @@ type Store struct {
 	leaseDur time.Duration
 }
 
+// ChunkDeleteInfo describes where chunk bytes may still exist after metadata removal.
+type ChunkDeleteInfo struct {
+	ChunkID  domain.ChunkID
+	Replicas []string
+}
+
 type fileRec struct {
 	id       domain.FileID
 	chunks   []domain.ChunkID
@@ -43,21 +50,24 @@ type fileRec struct {
 
 type chunkRec struct {
 	id       domain.ChunkID
-	nodeID   domain.NodeID
-	address  string
+	replicas []string // gRPC addresses; [0] is primary
 	version  uint64
 	checksum []byte
 	leaseID  domain.LeaseID
 	leaseExp time.Time
 }
 
-// NewStore creates a metadata store.
-func NewStore(chunkSize int64) *Store {
+// NewStore creates a metadata store. replication is the target replica count (default from config).
+func NewStore(chunkSize int64, replication int) *Store {
 	if chunkSize <= 0 {
 		chunkSize = config.DefaultChunkSize
 	}
+	if replication <= 0 {
+		replication = config.DefaultReplication
+	}
 	return &Store{
-		chunkSize: chunkSize,
+		chunkSize:         chunkSize,
+		replicationFactor: replication,
 		dirs: map[string]struct{}{
 			"/": {},
 		},
@@ -104,13 +114,24 @@ func (s *Store) RegisterNode(_ context.Context, n domain.ChunkNode) error {
 	return nil
 }
 
-func (s *Store) pickNode() (domain.ChunkNode, error) {
-	if len(s.nodes) == 0 {
-		return domain.ChunkNode{}, domain.ErrNoChunkServer
+// pickNodes returns n distinct registered chunk servers (round-robin from s.rr).
+func (s *Store) pickNodes(n int) ([]domain.ChunkNode, error) {
+	if n <= 0 {
+		n = 1
 	}
-	n := s.nodes[s.rr%len(s.nodes)]
-	s.rr++
-	return n, nil
+	if len(s.nodes) == 0 {
+		return nil, domain.ErrNoChunkServer
+	}
+	if len(s.nodes) < n {
+		return nil, domain.ErrInsufficientChunkServers
+	}
+	out := make([]domain.ChunkNode, 0, n)
+	for i := 0; i < n; i++ {
+		idx := (s.rr + i) % len(s.nodes)
+		out = append(out, s.nodes[idx])
+	}
+	s.rr += n
+	return out, nil
 }
 
 // Mkdir creates one directory; parent must exist.
@@ -176,15 +197,29 @@ func (s *Store) CreateFile(_ context.Context, p string) (domain.FileID, error) {
 	return id, nil
 }
 
-// Delete removes a file or empty directory.
-func (s *Store) Delete(_ context.Context, p string) ([]domain.ChunkID, error) {
-	if d, err := normalizeDir(p); err == nil {
+// Delete removes a file or empty directory. For files, returns replica locations for chunk GC.
+func (s *Store) Delete(_ context.Context, p string) ([]ChunkDeleteInfo, error) {
+	fp, err := normalizePath(p)
+	if err == nil {
+		s.mu.Lock()
+		if _, ok := s.files[fp]; ok {
+			s.mu.Unlock()
+			return s.deleteFile(fp)
+		}
+		if _, ok := s.dirs[fp]; ok {
+			s.mu.Unlock()
+			return s.deleteDir(fp)
+		}
+		s.mu.Unlock()
+		return nil, domain.ErrNotFound
+	}
+	if d, err2 := normalizeDir(p); err2 == nil {
 		return s.deleteDir(d)
 	}
-	fp, err := normalizePath(p)
-	if err != nil {
-		return nil, err
-	}
+	return nil, err
+}
+
+func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -192,18 +227,26 @@ func (s *Store) Delete(_ context.Context, p string) ([]domain.ChunkID, error) {
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	chunks := append([]domain.ChunkID(nil), fr.chunks...)
-	delete(s.files, fp)
-	for _, cid := range chunks {
+	var infos []ChunkDeleteInfo
+	for _, cid := range fr.chunks {
 		if cid == "" {
 			continue
 		}
+		cr, ok := s.chunks[cid]
+		if !ok {
+			continue
+		}
+		infos = append(infos, ChunkDeleteInfo{
+			ChunkID:  cid,
+			Replicas: append([]string(nil), cr.replicas...),
+		})
 		delete(s.chunks, cid)
 	}
-	return chunks, nil
+	delete(s.files, fp)
+	return infos, nil
 }
 
-func (s *Store) deleteDir(d string) ([]domain.ChunkID, error) {
+func (s *Store) deleteDir(d string) ([]ChunkDeleteInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -231,23 +274,32 @@ func (s *Store) deleteDir(d string) ([]domain.ChunkID, error) {
 	return nil, nil
 }
 
+
 // Rename atomically renames a file or directory.
 func (s *Store) Rename(_ context.Context, oldPath, newPath string) error {
-	if oldD, err := normalizeDir(oldPath); err == nil {
-		newD, err2 := normalizeDir(newPath)
-		if err2 != nil {
-			return err2
-		}
-		return s.renameDir(oldD, newD)
+	oldP, errO := normalizePath(oldPath)
+	newP, errN := normalizePath(newPath)
+	if errO != nil {
+		return errO
 	}
-	oldP, err := normalizePath(oldPath)
-	if err != nil {
-		return err
+	if errN != nil {
+		return errN
 	}
-	newP, err := normalizePath(newPath)
-	if err != nil {
-		return err
+	s.mu.Lock()
+	_, oldFile := s.files[oldP]
+	_, oldDir := s.dirs[oldP]
+	s.mu.Unlock()
+
+	if oldFile {
+		return s.renameFile(oldP, newP)
 	}
+	if oldDir {
+		return s.renameDir(oldP, newP)
+	}
+	return domain.ErrNotFound
+}
+
+func (s *Store) renameFile(oldP, newP string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -405,6 +457,7 @@ func (s *Store) ListDir(_ context.Context, p string) ([]string, bool, error) {
 func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int64) (
 	chunkID domain.ChunkID,
 	primaryAddr string,
+	secondaryAddrs []string,
 	leaseID domain.LeaseID,
 	chunkIndex int64,
 	chunkOff int64,
@@ -414,10 +467,10 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 ) {
 	fp, err := normalizePath(fpath)
 	if err != nil {
-		return "", "", "", 0, 0, 0, 0, err
+		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, err
 	}
 	if length <= 0 {
-		return "", "", "", 0, 0, 0, 0, fmt.Errorf("invalid length")
+		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("invalid length")
 	}
 
 	s.mu.Lock()
@@ -425,13 +478,13 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 
 	fr, ok := s.files[fp]
 	if !ok {
-		return "", "", "", 0, 0, 0, 0, domain.ErrNotFound
+		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
 	}
 
 	idx := offset / s.chunkSize
 	chunkOff = offset % s.chunkSize
 	if chunkOff+length > s.chunkSize {
-		return "", "", "", 0, 0, 0, 0, fmt.Errorf("write crosses chunk boundary")
+		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("write crosses chunk boundary")
 	}
 
 	ensure := int(idx) + 1
@@ -441,33 +494,44 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 
 	cid := fr.chunks[idx]
 	if cid == "" {
-		node, err := s.pickNode()
+		nodes, err := s.pickNodes(s.replicationFactor)
 		if err != nil {
-			return "", "", "", 0, 0, 0, 0, err
+			return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, err
 		}
 		cid = domain.ChunkID(uuid.NewString())
 		lid := domain.LeaseID(uuid.NewString())
 		exp := time.Now().UTC().Add(s.leaseDur)
+		replicas := make([]string, len(nodes))
+		for i := range nodes {
+			replicas[i] = nodes[i].GRPCAddress
+		}
 		s.chunks[cid] = &chunkRec{
 			id:       cid,
-			nodeID:   node.ID,
-			address:  node.GRPCAddress,
+			replicas: replicas,
 			version:  1,
 			leaseID:  lid,
 			leaseExp: exp,
 		}
 		fr.chunks[idx] = cid
-		return cid, node.GRPCAddress, lid, idx, chunkOff, s.chunkSize, 1, nil
+		var sec []string
+		if len(replicas) > 1 {
+			sec = append(sec, replicas[1:]...)
+		}
+		return cid, replicas[0], sec, lid, idx, chunkOff, s.chunkSize, 1, nil
 	}
 
 	cr, ok := s.chunks[cid]
 	if !ok {
-		return "", "", "", 0, 0, 0, 0, domain.ErrNotFound
+		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
 	}
 	lid := domain.LeaseID(uuid.NewString())
 	cr.leaseID = lid
 	cr.leaseExp = time.Now().UTC().Add(s.leaseDur)
-	return cid, cr.address, lid, idx, chunkOff, s.chunkSize, cr.version, nil
+	var sec []string
+	if len(cr.replicas) > 1 {
+		sec = append(sec, cr.replicas[1:]...)
+	}
+	return cid, cr.replicas[0], sec, lid, idx, chunkOff, s.chunkSize, cr.version, nil
 }
 
 // CommitChunk records successful write.
@@ -553,5 +617,5 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 		avail = 0
 	}
 
-	return cid, []string{cr.address}, chunkOff, avail, cr.version, nil
+	return cid, append([]string(nil), cr.replicas...), chunkOff, avail, cr.version, nil
 }

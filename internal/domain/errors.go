@@ -13,4 +13,5 @@ var (
 	ErrLeaseConflict    = errors.New("lease conflict")
 	ErrChunkMismatch    = errors.New("chunk version mismatch")
 	ErrParentNotFound   = errors.New("parent directory not found")
+	ErrInsufficientChunkServers = errors.New("insufficient chunk servers for replication")
 )

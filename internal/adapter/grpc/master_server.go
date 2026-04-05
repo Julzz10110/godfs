@@ -5,7 +5,9 @@ import (
 	"errors"
 	"path"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
@@ -37,6 +39,8 @@ func mapErr(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, domain.ErrNoChunkServer):
 		return status.Error(codes.Unavailable, err.Error())
+	case errors.Is(err, domain.ErrInsufficientChunkServers):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrParentNotFound):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrChunkMismatch):
@@ -74,10 +78,29 @@ func (m *MasterServer) Mkdir(ctx context.Context, req *godfsv1.MkdirRequest) (*g
 }
 
 func (m *MasterServer) Delete(ctx context.Context, req *godfsv1.DeleteRequest) (*godfsv1.DeleteResponse, error) {
-	if _, err := m.Store.Delete(ctx, req.Path); err != nil {
+	chunks, err := m.Store.Delete(ctx, req.Path)
+	if err != nil {
 		return nil, mapErr(err)
 	}
+	for _, ch := range chunks {
+		for _, addr := range ch.Replicas {
+			if err := deleteChunkOnPeer(ctx, addr, string(ch.ChunkID)); err != nil {
+				return nil, status.Errorf(codes.Internal, "delete chunk %s on %s: %v", ch.ChunkID, addr, err)
+			}
+		}
+	}
 	return &godfsv1.DeleteResponse{}, nil
+}
+
+func deleteChunkOnPeer(ctx context.Context, addr, chunkID string) error {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	cli := godfsv1.NewChunkServiceClient(conn)
+	_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: chunkID})
+	return err
 }
 
 func (m *MasterServer) Rename(ctx context.Context, req *godfsv1.RenameRequest) (*godfsv1.RenameResponse, error) {
@@ -119,18 +142,19 @@ func (m *MasterServer) ListDir(ctx context.Context, req *godfsv1.ListDirRequest)
 }
 
 func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWriteRequest) (*godfsv1.PrepareWriteResponse, error) {
-	cid, addr, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
+	cid, addr, sec, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.PrepareWriteResponse{
-		ChunkId:         string(cid),
-		PrimaryAddress:  addr,
-		LeaseId:         string(lease),
-		ChunkIndex:      idx,
-		ChunkOffset:     off,
-		ChunkSize:       csize,
-		Version:         ver,
+		ChunkId:             string(cid),
+		PrimaryAddress:      addr,
+		SecondaryAddresses:  sec,
+		LeaseId:             string(lease),
+		ChunkIndex:          idx,
+		ChunkOffset:         off,
+		ChunkSize:           csize,
+		Version:             ver,
 	}, nil
 }
 

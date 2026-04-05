@@ -92,6 +92,8 @@ message PrepareWriteResponse {
   int64 chunk_offset = 5;
   int64 chunk_size = 6;
   uint64 version = 7;
+  // Addresses of non-primary replicas (primary writes here after local commit).
+  repeated string secondary_addresses = 8;
 }
 
 message CommitChunkRequest {
@@ -123,6 +125,8 @@ service ChunkService {
   rpc WriteChunk(stream WriteChunkRequest) returns (WriteChunkResponse);
   rpc ReadChunk(ReadChunkRequest) returns (stream ReadChunkResponse);
   rpc DeleteChunk(DeleteChunkRequest) returns (DeleteChunkResponse);
+  // Primary pushes full chunk bytes to a secondary (internal replication).
+  rpc SyncChunk(stream SyncChunkRequest) returns (SyncChunkResponse);
 }
 
 message WriteChunkRequest {
@@ -137,6 +141,7 @@ message WriteChunkMeta {
   int64 offset_in_chunk = 2;
   string lease_id = 3;
   uint64 version = 4;
+  repeated string secondary_addresses = 5;
 }
 
 message WriteChunkResponse {
@@ -159,3 +164,18 @@ message DeleteChunkRequest {
 }
 
 message DeleteChunkResponse {}
+
+message SyncChunkRequest {
+  oneof frame {
+    SyncChunkMeta meta = 1;
+    bytes data = 2;
+  }
+}
+
+message SyncChunkMeta {
+  string chunk_id = 1;
+}
+
+message SyncChunkResponse {
+  int64 bytes_copied = 1;
+}

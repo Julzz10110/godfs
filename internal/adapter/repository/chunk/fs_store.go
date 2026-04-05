@@ -98,3 +98,17 @@ func (f *FSStore) Size(chunkID string) (int64, error) {
 	}
 	return fi.Size(), nil
 }
+
+// ReadAll returns the full chunk file (used by primary after write for replication).
+func (f *FSStore) ReadAll(chunkID string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return os.ReadFile(f.path(chunkID))
+}
+
+// WriteFull replaces the chunk file contents (used by SyncChunk on secondaries).
+func (f *FSStore) WriteFull(chunkID string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return os.WriteFile(f.path(chunkID), data, 0o640)
+}

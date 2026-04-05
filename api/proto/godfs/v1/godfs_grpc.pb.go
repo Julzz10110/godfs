@@ -466,6 +466,7 @@ const (
 	ChunkService_WriteChunk_FullMethodName  = "/godfs.v1.ChunkService/WriteChunk"
 	ChunkService_ReadChunk_FullMethodName   = "/godfs.v1.ChunkService/ReadChunk"
 	ChunkService_DeleteChunk_FullMethodName = "/godfs.v1.ChunkService/DeleteChunk"
+	ChunkService_SyncChunk_FullMethodName   = "/godfs.v1.ChunkService/SyncChunk"
 )
 
 // ChunkServiceClient is the client API for ChunkService service.
@@ -475,6 +476,8 @@ type ChunkServiceClient interface {
 	WriteChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteChunkRequest, WriteChunkResponse], error)
 	ReadChunk(ctx context.Context, in *ReadChunkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadChunkResponse], error)
 	DeleteChunk(ctx context.Context, in *DeleteChunkRequest, opts ...grpc.CallOption) (*DeleteChunkResponse, error)
+	// Primary pushes full chunk bytes to a secondary (internal replication).
+	SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error)
 }
 
 type chunkServiceClient struct {
@@ -527,6 +530,19 @@ func (c *chunkServiceClient) DeleteChunk(ctx context.Context, in *DeleteChunkReq
 	return out, nil
 }
 
+func (c *chunkServiceClient) SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ChunkService_ServiceDesc.Streams[2], ChunkService_SyncChunk_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SyncChunkRequest, SyncChunkResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ChunkService_SyncChunkClient = grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse]
+
 // ChunkServiceServer is the server API for ChunkService service.
 // All implementations must embed UnimplementedChunkServiceServer
 // for forward compatibility.
@@ -534,6 +550,8 @@ type ChunkServiceServer interface {
 	WriteChunk(grpc.ClientStreamingServer[WriteChunkRequest, WriteChunkResponse]) error
 	ReadChunk(*ReadChunkRequest, grpc.ServerStreamingServer[ReadChunkResponse]) error
 	DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error)
+	// Primary pushes full chunk bytes to a secondary (internal replication).
+	SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error
 	mustEmbedUnimplementedChunkServiceServer()
 }
 
@@ -552,6 +570,9 @@ func (UnimplementedChunkServiceServer) ReadChunk(*ReadChunkRequest, grpc.ServerS
 }
 func (UnimplementedChunkServiceServer) DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteChunk not implemented")
+}
+func (UnimplementedChunkServiceServer) SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method SyncChunk not implemented")
 }
 func (UnimplementedChunkServiceServer) mustEmbedUnimplementedChunkServiceServer() {}
 func (UnimplementedChunkServiceServer) testEmbeddedByValue()                      {}
@@ -610,6 +631,13 @@ func _ChunkService_DeleteChunk_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChunkService_SyncChunk_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ChunkServiceServer).SyncChunk(&grpc.GenericServerStream[SyncChunkRequest, SyncChunkResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ChunkService_SyncChunkServer = grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]
+
 // ChunkService_ServiceDesc is the grpc.ServiceDesc for ChunkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -632,6 +660,11 @@ var ChunkService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "ReadChunk",
 			Handler:       _ChunkService_ReadChunk_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "SyncChunk",
+			Handler:       _ChunkService_SyncChunk_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "api/proto/godfs/v1/godfs.proto",

@@ -26,17 +26,24 @@ func main() {
 			chunkSize = n
 		}
 	}
+	replication := config.DefaultReplication
+	if v := os.Getenv("GODFS_REPLICATION"); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			replication = n
+		}
+	}
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
 
-	store := metadata.NewStore(chunkSize)
+	store := metadata.NewStore(chunkSize, replication)
 	srv := grpc.NewServer()
 	godfsv1.RegisterMasterServiceServer(srv, &grpcsvc.MasterServer{Store: store})
 
-	log.Printf("goDFS master listening on %s (chunk size %d bytes)", addr, chunkSize)
+	log.Printf("goDFS master listening on %s (chunk size %d bytes, replication %d)", addr, chunkSize, replication)
 	if err := srv.Serve(ln); err != nil {
 		log.Fatalf("serve: %v", err)
 	}

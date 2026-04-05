@@ -45,10 +45,50 @@ func (c *ChunkServer) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) e
 		return status.Errorf(codes.Internal, "write: %v", err)
 	}
 
+	ctx := stream.Context()
+	if len(meta.SecondaryAddresses) > 0 {
+		full, rerr := c.Store.ReadAll(meta.ChunkId)
+		if rerr != nil {
+			return status.Errorf(codes.Internal, "read for replicate: %v", rerr)
+		}
+		for _, peer := range meta.SecondaryAddresses {
+			if err := ReplicateFullChunk(ctx, peer, meta.ChunkId, full); err != nil {
+				return status.Errorf(codes.Internal, "replicate to %s: %v", peer, err)
+			}
+		}
+	}
+
 	return stream.SendAndClose(&godfsv1.WriteChunkResponse{
 		BytesWritten:   n,
 		ChecksumSha256: sum,
 	})
+}
+
+func (c *ChunkServer) SyncChunk(stream godfsv1.ChunkService_SyncChunkServer) error {
+	var chunkID string
+	var buf []byte
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if m := req.GetMeta(); m != nil {
+			chunkID = m.ChunkId
+		}
+		if d := req.GetData(); d != nil {
+			buf = append(buf, d...)
+		}
+	}
+	if chunkID == "" {
+		return status.Error(codes.InvalidArgument, "missing meta")
+	}
+	if err := c.Store.WriteFull(chunkID, buf); err != nil {
+		return status.Errorf(codes.Internal, "sync write: %v", err)
+	}
+	return stream.SendAndClose(&godfsv1.SyncChunkResponse{BytesCopied: int64(len(buf))})
 }
 
 func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.ChunkService_ReadChunkServer) error {

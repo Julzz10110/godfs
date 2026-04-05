@@ -1,6 +1,6 @@
 # goDFS
 
-A distributed file system written in Go (1.26+). The current implementation includes: Master with in-memory metadata (no Raft), a single ChunkServer storing chunks as files on disk, gRPC without mTLS, **1×** replication.
+A distributed file system written in Go (1.26+). The current implementation includes: Master with in-memory metadata (no Raft), ChunkServers storing chunks as files on disk, gRPC without mTLS, and **3× replication by default** (primary write + `SyncChunk` to secondaries). Set `GODFS_REPLICATION=1` for single-replica mode (dev).
 
 ## Quick start
 
@@ -35,7 +35,12 @@ go run ./cmd/client --master 127.0.0.1:9090 write /data/hello.txt ./local.txt
 go run ./cmd/client --master 127.0.0.1:9090 read /data/hello.txt ./out.txt
 ```
 
-Environment variables: `GODFS_MASTER_LISTEN`, `GODFS_CHUNK_LISTEN`, `GODFS_CHUNK_DATA`, `GODFS_NODE_ID`, `GODFS_CHUNK_SIZE_BYTES` (Master).
+Environment variables:
+
+- Master: `GODFS_MASTER_LISTEN`, `GODFS_CHUNK_SIZE_BYTES`, **`GODFS_REPLICATION`** (default `3`; requires at least that many registered ChunkServers).
+- Chunk: `GODFS_MASTER`, `GODFS_CHUNK_LISTEN`, `GODFS_CHUNK_DATA`, `GODFS_NODE_ID`, **`GODFS_ADVERTISE_ADDR`** (must be reachable from the client and other ChunkServers).
+
+For **3× replication**, run three ChunkServer processes with distinct `GODFS_NODE_ID`, `GODFS_CHUNK_DATA`, `GODFS_CHUNK_LISTEN`, and `GODFS_ADVERTISE_ADDR` (e.g. ports 8000, 8001, 8002), then start Master and use the client as usual.
 
 ## Architecture (MVP)
 
@@ -46,6 +51,16 @@ Environment variables: `GODFS_MASTER_LISTEN`, `GODFS_CHUNK_LISTEN`, `GODFS_CHUNK
 - **`pkg/client`** — SDK: `Create`, `Mkdir`, `Read`, `Write`, `Delete`, `Rename`, `Stat`, `List`.
 
 Default chunk size: **64 MiB** (as in the specification).
+
+## Testing
+
+End-to-end tests (in-process Master + ChunkServers, no Docker):
+
+```bash
+go test ./test/e2e/...
+```
+
+Unit tests: `go test ./internal/...`
 
 ## License
 
