@@ -1,0 +1,14 @@
+cluster:
+  master_endpoints:
+    - "127.0.0.1:9090"
+
+node:
+  id: chunk-1
+  advertise_addr: "127.0.0.1:8000"
+
+storage:
+  data_dir: ./chunkdata
+  max_storage_gb: 100
+
+network:
+  listen: "0.0.0.0:8000"

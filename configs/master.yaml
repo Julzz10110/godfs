@@ -1,0 +1,17 @@
+# Example — Phase 1 uses env vars in cmd/master; future: viper loader
+cluster:
+  name: dev
+  node_id: master-1
+
+network:
+  listen: "0.0.0.0:9090"
+
+metadata:
+  chunk_size_bytes: 67108864  # 64 MiB
+
+chunk:
+  default_replication: 1  # MVP single replica; target 3 in Phase 2
+
+heartbeat:
+  interval_sec: 3
+  timeout_sec: 10

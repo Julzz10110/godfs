@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package godfs.v1;
+
+option go_package = "godfs/api/proto/godfs/v1;godfsv1";
+
+service MasterService {
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc CreateFile(CreateFileRequest) returns (CreateFileResponse);
+  rpc Mkdir(MkdirRequest) returns (MkdirResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Rename(RenameRequest) returns (RenameResponse);
+  rpc Stat(StatRequest) returns (StatResponse);
+  rpc ListDir(ListDirRequest) returns (ListDirResponse);
+  rpc PrepareWrite(PrepareWriteRequest) returns (PrepareWriteResponse);
+  rpc CommitChunk(CommitChunkRequest) returns (CommitChunkResponse);
+  rpc GetChunkForRead(GetChunkForReadRequest) returns (GetChunkForReadResponse);
+}
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  string grpc_address = 2;
+  int64 capacity_bytes = 3;
+}
+
+message RegisterNodeResponse {}
+
+message CreateFileRequest {
+  string path = 1;
+}
+
+message CreateFileResponse {
+  string file_id = 1;
+}
+
+message MkdirRequest {
+  string path = 1;
+}
+
+message MkdirResponse {}
+
+message DeleteRequest {
+  string path = 1;
+}
+
+message DeleteResponse {}
+
+message RenameRequest {
+  string old_path = 1;
+  string new_path = 2;
+}
+
+message RenameResponse {}
+
+message StatRequest {
+  string path = 1;
+}
+
+message StatResponse {
+  bool is_dir = 1;
+  int64 size = 2;
+  int64 created_at_unix = 3;
+  int64 modified_at_unix = 4;
+  uint32 mode = 5;
+}
+
+message ListDirRequest {
+  string path = 1;
+}
+
+message DirEntry {
+  string name = 1;
+  bool is_dir = 2;
+  int64 size = 3;
+}
+
+message ListDirResponse {
+  repeated DirEntry entries = 1;
+}
+
+message PrepareWriteRequest {
+  string path = 1;
+  int64 offset = 2;
+  int64 length = 3;
+}
+
+message PrepareWriteResponse {
+  string chunk_id = 1;
+  string primary_address = 2;
+  string lease_id = 3;
+  int64 chunk_index = 4;
+  int64 chunk_offset = 5;
+  int64 chunk_size = 6;
+  uint64 version = 7;
+}
+
+message CommitChunkRequest {
+  string path = 1;
+  string chunk_id = 2;
+  int64 chunk_index = 3;
+  int64 chunk_offset = 4;
+  int64 written = 5;
+  bytes checksum_sha256 = 6;
+  uint64 version = 7;
+}
+
+message CommitChunkResponse {}
+
+message GetChunkForReadRequest {
+  string path = 1;
+  int64 offset = 2;
+}
+
+message GetChunkForReadResponse {
+  string chunk_id = 1;
+  repeated string replica_addresses = 2;
+  int64 chunk_offset = 3;
+  int64 available_in_chunk = 4;
+  uint64 version = 5;
+}
+
+service ChunkService {
+  rpc WriteChunk(stream WriteChunkRequest) returns (WriteChunkResponse);
+  rpc ReadChunk(ReadChunkRequest) returns (stream ReadChunkResponse);
+  rpc DeleteChunk(DeleteChunkRequest) returns (DeleteChunkResponse);
+}
+
+message WriteChunkRequest {
+  oneof frame {
+    WriteChunkMeta meta = 1;
+    bytes data = 2;
+  }
+}
+
+message WriteChunkMeta {
+  string chunk_id = 1;
+  int64 offset_in_chunk = 2;
+  string lease_id = 3;
+  uint64 version = 4;
+}
+
+message WriteChunkResponse {
+  int64 bytes_written = 1;
+  bytes checksum_sha256 = 2;
+}
+
+message ReadChunkRequest {
+  string chunk_id = 1;
+  int64 offset_in_chunk = 2;
+  int64 length = 3;
+}
+
+message ReadChunkResponse {
+  bytes data = 1;
+}
+
+message DeleteChunkRequest {
+  string chunk_id = 1;
+}
+
+message DeleteChunkResponse {}

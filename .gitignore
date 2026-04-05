@@ -1,0 +1,7 @@
+/bin/
+/tmpchunk/
+/chunkdata/
+*.exe
+*.chk
+local.txt
+out.txt

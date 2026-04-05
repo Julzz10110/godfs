@@ -1,0 +1,28 @@
+services:
+  master:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.master
+    ports:
+      - "9090:9090"
+    environment:
+      GODFS_MASTER_LISTEN: "0.0.0.0:9090"
+
+  chunk:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.chunkserver
+    ports:
+      - "8000:8000"
+    environment:
+      GODFS_MASTER: "master:9090"
+      GODFS_ADVERTISE_ADDR: "chunk:8000"
+      GODFS_CHUNK_LISTEN: "0.0.0.0:8000"
+      GODFS_CHUNK_DATA: "/var/lib/godfs/data"
+    volumes:
+      - chunkdata:/var/lib/godfs
+    depends_on:
+      - master
+
+volumes:
+  chunkdata: {}
