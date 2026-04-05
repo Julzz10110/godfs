@@ -189,7 +189,7 @@ func (m *MasterServer) CommitChunk(ctx context.Context, req *godfsv1.CommitChunk
 }
 
 func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChunkForReadRequest) (*godfsv1.GetChunkForReadResponse, error) {
-	cid, locs, off, avail, ver, err := m.Store.GetChunkForRead(ctx, req.Path, req.Offset)
+	cid, locs, off, avail, ver, cksum, err := m.Store.GetChunkForRead(ctx, req.Path, req.Offset)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -203,11 +203,12 @@ func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChun
 		}
 	}
 	return &godfsv1.GetChunkForReadResponse{
-		ChunkId:            string(cid),
-		ReplicaAddresses:   addrs,
-		ReplicaLocations:   protoLocs,
-		ChunkOffset:        off,
-		AvailableInChunk:   avail,
-		Version:            ver,
+		ChunkId:               string(cid),
+		ReplicaAddresses:      addrs,
+		ReplicaLocations:      protoLocs,
+		ChunkOffset:           off,
+		AvailableInChunk:      avail,
+		Version:               ver,
+		ChunkChecksumSha256:   cksum,
 	}, nil
 }

@@ -1,8 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"hash"
 	"io"
 	"sync"
 	"time"
@@ -262,6 +265,10 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 			}
 			dstOff := off
 			var streamErr error
+			var verifyHash hash.Hash
+			if len(gr.ChunkChecksumSha256) == 32 && gr.ChunkOffset == 0 {
+				verifyHash = sha256.New()
+			}
 			for {
 				msg, err := rc.Recv()
 				if err == io.EOF {
@@ -271,11 +278,19 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 					streamErr = err
 					break
 				}
+				if verifyHash != nil {
+					verifyHash.Write(msg.Data)
+				}
 				n := copy(out[dstOff:], msg.Data)
 				dstOff += int64(n)
 				if n < len(msg.Data) {
 					streamErr = fmt.Errorf("short buffer")
 					break
+				}
+			}
+			if streamErr == nil && verifyHash != nil {
+				if !bytes.Equal(verifyHash.Sum(nil), gr.ChunkChecksumSha256) {
+					streamErr = fmt.Errorf("chunk checksum mismatch")
 				}
 			}
 			if streamErr == nil {

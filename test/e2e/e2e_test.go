@@ -153,6 +153,48 @@ func TestE2E_ThreeReplicasSameChunkFile(t *testing.T) {
 	}
 }
 
+func TestE2E_ReadAfterOneChunkReplicaStopped(t *testing.T) {
+	const chunkSize = 64 * 1024
+	_, cl := e2e.StartMaster(t, chunkSize, 3)
+	base := t.TempDir()
+	for i := range 3 {
+		d := filepath.Join(base, "c"+strconv.Itoa(i))
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		cl.AddChunkServer(t, "node-"+strconv.Itoa(i), d)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cli, err := client.NewWithChunkSize(cl.MasterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+
+	if err := cli.Mkdir(ctx, "/fail"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.Create(ctx, "/fail/x"); err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("read after one replica down")
+	if err := cli.Write(ctx, "/fail/x", msg); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// Stop first registered chunk server (often primary for the first chunk; client must retry other replicas).
+	cl.StopChunkServer(t, 0)
+	got, err := cli.Read(ctx, "/fail/x")
+	if err != nil {
+		t.Fatalf("read after replica stop: %v", err)
+	}
+	if string(got) != string(msg) {
+		t.Fatalf("read mismatch: %q vs %q", got, msg)
+	}
+}
+
 func TestE2E_RenameAndList(t *testing.T) {
 	const chunkSize = 64 * 1024
 	_, cl := e2e.StartMaster(t, chunkSize, 1)

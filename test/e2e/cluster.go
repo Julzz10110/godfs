@@ -19,6 +19,9 @@ import (
 type Cluster struct {
 	MasterAddr string
 	ChunkDirs  []string
+
+	chunkSrvs []*grpc.Server
+	chunkLns  []net.Listener
 }
 
 // StartMaster starts Master on 127.0.0.1:0 with given chunk size and replication factor.
@@ -89,6 +92,8 @@ func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
 	}
 
 	c.ChunkDirs = append(c.ChunkDirs, dataDir)
+	c.chunkSrvs = append(c.chunkSrvs, srv)
+	c.chunkLns = append(c.chunkLns, ln)
 
 	t.Cleanup(func() {
 		srv.Stop()
@@ -96,4 +101,14 @@ func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
 	})
 
 	return advertise
+}
+
+// StopChunkServer stops one chunk gRPC server (failure simulation). Index matches registration order in AddChunkServer.
+func (c *Cluster) StopChunkServer(t *testing.T, index int) {
+	t.Helper()
+	if c == nil || index < 0 || index >= len(c.chunkSrvs) {
+		t.Fatalf("invalid chunk index %d (servers=%d)", index, len(c.chunkSrvs))
+	}
+	c.chunkSrvs[index].Stop()
+	_ = c.chunkLns[index].Close()
 }

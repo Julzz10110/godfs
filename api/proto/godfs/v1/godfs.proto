@@ -127,6 +127,8 @@ message GetChunkForReadResponse {
   int64 available_in_chunk = 4;
   uint64 version = 5;
   repeated ReplicaLocation replica_locations = 6;
+  // SHA-256 of the full on-disk chunk after last commit (32 bytes). Clients may verify when chunk_offset == 0.
+  bytes chunk_checksum_sha256 = 7;
 }
 
 service ChunkService {

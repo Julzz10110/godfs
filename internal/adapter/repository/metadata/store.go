@@ -26,6 +26,8 @@ type Store struct {
 	// nodeUsedBytes is estimated bytes reserved per node (chunkSize per chunk placed).
 	nodeUsedBytes map[domain.NodeID]int64
 	nodeSet       map[domain.NodeID]int
+	// placementRR advances after each successful Pick to rotate tie-breaking (see placement.Pick).
+	placementRR int
 
 	dirs  map[string]struct{}
 	files map[string]*fileRec
@@ -125,7 +127,12 @@ func (s *Store) pickNodes(n int) ([]domain.ChunkNode, error) {
 	if len(s.nodes) == 0 {
 		return nil, domain.ErrNoChunkServer
 	}
-	return placement.Pick(s.nodes, n, s.nodeUsedBytes)
+	out, err := placement.Pick(s.nodes, n, s.nodeUsedBytes, s.placementRR)
+	if err != nil {
+		return nil, err
+	}
+	s.placementRR++
+	return out, nil
 }
 
 func (s *Store) reserveChunkOnNodes(nodes []domain.ChunkNode) {
@@ -593,35 +600,36 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 	chunkOff int64,
 	available int64,
 	version uint64,
+	checksum []byte,
 	err error,
 ) {
 	fp, err := normalizePath(fpath)
 	if err != nil {
-		return "", nil, 0, 0, 0, err
+		return "", nil, 0, 0, 0, nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	fr, ok := s.files[fp]
 	if !ok {
-		return "", nil, 0, 0, 0, domain.ErrNotFound
+		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 	if offset < 0 || offset >= fr.size {
-		return "", nil, 0, 0, 0, fmt.Errorf("offset out of range")
+		return "", nil, 0, 0, 0, nil, fmt.Errorf("offset out of range")
 	}
 
 	idx := offset / s.chunkSize
 	chunkOff = offset % s.chunkSize
 	if int(idx) >= len(fr.chunks) {
-		return "", nil, 0, 0, 0, domain.ErrNotFound
+		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 	cid := fr.chunks[idx]
 	if cid == "" {
-		return "", nil, 0, 0, 0, domain.ErrNotFound
+		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 	cr, ok := s.chunks[cid]
 	if !ok {
-		return "", nil, 0, 0, 0, domain.ErrNotFound
+		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 
 	chunkStart := idx * s.chunkSize
@@ -634,5 +642,9 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 		avail = 0
 	}
 
-	return cid, append([]domain.ChunkReplica(nil), cr.replicas...), chunkOff, avail, cr.version, nil
+	var sum []byte
+	if len(cr.checksum) > 0 {
+		sum = append([]byte(nil), cr.checksum...)
+	}
+	return cid, append([]domain.ChunkReplica(nil), cr.replicas...), chunkOff, avail, cr.version, sum, nil
 }
