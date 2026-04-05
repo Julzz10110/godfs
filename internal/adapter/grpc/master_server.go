@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -93,6 +94,26 @@ func (m *MasterServer) Delete(ctx context.Context, req *godfsv1.DeleteRequest) (
 }
 
 func deleteChunkOnPeer(ctx context.Context, addr, chunkID string) error {
+	var last error
+	for attempt := range 4 {
+		if attempt > 0 {
+			t := time.NewTimer(time.Duration(50*attempt) * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-t.C:
+			}
+		}
+		last = deleteChunkOnce(ctx, addr, chunkID)
+		if last == nil {
+			return nil
+		}
+	}
+	return last
+}
+
+func deleteChunkOnce(ctx context.Context, addr, chunkID string) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -142,7 +163,7 @@ func (m *MasterServer) ListDir(ctx context.Context, req *godfsv1.ListDirRequest)
 }
 
 func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWriteRequest) (*godfsv1.PrepareWriteResponse, error) {
-	cid, addr, sec, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
+	cid, addr, sec, primaryID, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -150,6 +171,7 @@ func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWri
 		ChunkId:             string(cid),
 		PrimaryAddress:      addr,
 		SecondaryAddresses:  sec,
+		PrimaryNodeId:       string(primaryID),
 		LeaseId:             string(lease),
 		ChunkIndex:          idx,
 		ChunkOffset:         off,
@@ -167,15 +189,25 @@ func (m *MasterServer) CommitChunk(ctx context.Context, req *godfsv1.CommitChunk
 }
 
 func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChunkForReadRequest) (*godfsv1.GetChunkForReadResponse, error) {
-	cid, reps, off, avail, ver, err := m.Store.GetChunkForRead(ctx, req.Path, req.Offset)
+	cid, locs, off, avail, ver, err := m.Store.GetChunkForRead(ctx, req.Path, req.Offset)
 	if err != nil {
 		return nil, mapErr(err)
 	}
+	addrs := make([]string, len(locs))
+	protoLocs := make([]*godfsv1.ReplicaLocation, len(locs))
+	for i, r := range locs {
+		addrs[i] = r.Address
+		protoLocs[i] = &godfsv1.ReplicaLocation{
+			NodeId:       string(r.NodeID),
+			GrpcAddress:  r.Address,
+		}
+	}
 	return &godfsv1.GetChunkForReadResponse{
-		ChunkId:           string(cid),
-		ReplicaAddresses:  reps,
-		ChunkOffset:       off,
-		AvailableInChunk:  avail,
-		Version:           ver,
+		ChunkId:            string(cid),
+		ReplicaAddresses:   addrs,
+		ReplicaLocations:   protoLocs,
+		ChunkOffset:        off,
+		AvailableInChunk:   avail,
+		Version:            ver,
 	}, nil
 }

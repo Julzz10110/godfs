@@ -12,6 +12,7 @@ import (
 
 	"godfs/internal/config"
 	"godfs/internal/domain"
+	"godfs/internal/placement"
 )
 
 // Store is an in-memory metadata store (Phase 1 — no Raft).
@@ -21,9 +22,10 @@ type Store struct {
 	chunkSize         int64
 	replicationFactor int
 
-	nodes   []domain.ChunkNode
-	rr      int
-	nodeSet map[domain.NodeID]int
+	nodes []domain.ChunkNode
+	// nodeUsedBytes is estimated bytes reserved per node (chunkSize per chunk placed).
+	nodeUsedBytes map[domain.NodeID]int64
+	nodeSet       map[domain.NodeID]int
 
 	dirs  map[string]struct{}
 	files map[string]*fileRec
@@ -50,7 +52,7 @@ type fileRec struct {
 
 type chunkRec struct {
 	id       domain.ChunkID
-	replicas []string // gRPC addresses; [0] is primary
+	replicas []domain.ChunkReplica // [0] is primary
 	version  uint64
 	checksum []byte
 	leaseID  domain.LeaseID
@@ -71,10 +73,11 @@ func NewStore(chunkSize int64, replication int) *Store {
 		dirs: map[string]struct{}{
 			"/": {},
 		},
-		files:    map[string]*fileRec{},
-		chunks:   map[domain.ChunkID]*chunkRec{},
-		nodeSet:  map[domain.NodeID]int{},
-		leaseDur: time.Duration(config.DefaultLeaseSec) * time.Second,
+		files:         map[string]*fileRec{},
+		chunks:        map[domain.ChunkID]*chunkRec{},
+		nodeSet:       map[domain.NodeID]int{},
+		nodeUsedBytes: map[domain.NodeID]int64{},
+		leaseDur:      time.Duration(config.DefaultLeaseSec) * time.Second,
 	}
 }
 
@@ -111,27 +114,34 @@ func (s *Store) RegisterNode(_ context.Context, n domain.ChunkNode) error {
 	}
 	s.nodeSet[n.ID] = len(s.nodes)
 	s.nodes = append(s.nodes, n)
+	if _, ok := s.nodeUsedBytes[n.ID]; !ok {
+		s.nodeUsedBytes[n.ID] = 0
+	}
 	return nil
 }
 
-// pickNodes returns n distinct registered chunk servers (round-robin from s.rr).
+// pickNodes chooses distinct chunk servers by free capacity (see [placement.Pick]).
 func (s *Store) pickNodes(n int) ([]domain.ChunkNode, error) {
-	if n <= 0 {
-		n = 1
-	}
 	if len(s.nodes) == 0 {
 		return nil, domain.ErrNoChunkServer
 	}
-	if len(s.nodes) < n {
-		return nil, domain.ErrInsufficientChunkServers
+	return placement.Pick(s.nodes, n, s.nodeUsedBytes)
+}
+
+func (s *Store) reserveChunkOnNodes(nodes []domain.ChunkNode) {
+	for _, n := range nodes {
+		s.nodeUsedBytes[n.ID] += s.chunkSize
 	}
-	out := make([]domain.ChunkNode, 0, n)
-	for i := 0; i < n; i++ {
-		idx := (s.rr + i) % len(s.nodes)
-		out = append(out, s.nodes[idx])
+}
+
+func (s *Store) releaseChunkFromReplicas(rep []domain.ChunkReplica) {
+	for _, r := range rep {
+		u := s.nodeUsedBytes[r.NodeID] - s.chunkSize
+		if u < 0 {
+			u = 0
+		}
+		s.nodeUsedBytes[r.NodeID] = u
 	}
-	s.rr += n
-	return out, nil
 }
 
 // Mkdir creates one directory; parent must exist.
@@ -236,9 +246,14 @@ func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
 		if !ok {
 			continue
 		}
+		addrs := make([]string, len(cr.replicas))
+		for i, r := range cr.replicas {
+			addrs[i] = r.Address
+		}
+		s.releaseChunkFromReplicas(cr.replicas)
 		infos = append(infos, ChunkDeleteInfo{
 			ChunkID:  cid,
-			Replicas: append([]string(nil), cr.replicas...),
+			Replicas: addrs,
 		})
 		delete(s.chunks, cid)
 	}
@@ -458,6 +473,7 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 	chunkID domain.ChunkID,
 	primaryAddr string,
 	secondaryAddrs []string,
+	primaryNodeID domain.NodeID,
 	leaseID domain.LeaseID,
 	chunkIndex int64,
 	chunkOff int64,
@@ -467,10 +483,10 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 ) {
 	fp, err := normalizePath(fpath)
 	if err != nil {
-		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, err
+		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, err
 	}
 	if length <= 0 {
-		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("invalid length")
+		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("invalid length")
 	}
 
 	s.mu.Lock()
@@ -478,13 +494,13 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 
 	fr, ok := s.files[fp]
 	if !ok {
-		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
+		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
 	}
 
 	idx := offset / s.chunkSize
 	chunkOff = offset % s.chunkSize
 	if chunkOff+length > s.chunkSize {
-		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("write crosses chunk boundary")
+		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, fmt.Errorf("write crosses chunk boundary")
 	}
 
 	ensure := int(idx) + 1
@@ -496,14 +512,15 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 	if cid == "" {
 		nodes, err := s.pickNodes(s.replicationFactor)
 		if err != nil {
-			return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, err
+			return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, err
 		}
+		s.reserveChunkOnNodes(nodes)
 		cid = domain.ChunkID(uuid.NewString())
 		lid := domain.LeaseID(uuid.NewString())
 		exp := time.Now().UTC().Add(s.leaseDur)
-		replicas := make([]string, len(nodes))
+		replicas := make([]domain.ChunkReplica, len(nodes))
 		for i := range nodes {
-			replicas[i] = nodes[i].GRPCAddress
+			replicas[i] = domain.ChunkReplica{NodeID: nodes[i].ID, Address: nodes[i].GRPCAddress}
 		}
 		s.chunks[cid] = &chunkRec{
 			id:       cid,
@@ -514,24 +531,24 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 		}
 		fr.chunks[idx] = cid
 		var sec []string
-		if len(replicas) > 1 {
-			sec = append(sec, replicas[1:]...)
+		for i := 1; i < len(replicas); i++ {
+			sec = append(sec, replicas[i].Address)
 		}
-		return cid, replicas[0], sec, lid, idx, chunkOff, s.chunkSize, 1, nil
+		return cid, replicas[0].Address, sec, replicas[0].NodeID, lid, idx, chunkOff, s.chunkSize, 1, nil
 	}
 
 	cr, ok := s.chunks[cid]
 	if !ok {
-		return "", "", nil, domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
+		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
 	}
 	lid := domain.LeaseID(uuid.NewString())
 	cr.leaseID = lid
 	cr.leaseExp = time.Now().UTC().Add(s.leaseDur)
 	var sec []string
-	if len(cr.replicas) > 1 {
-		sec = append(sec, cr.replicas[1:]...)
+	for i := 1; i < len(cr.replicas); i++ {
+		sec = append(sec, cr.replicas[i].Address)
 	}
-	return cid, cr.replicas[0], sec, lid, idx, chunkOff, s.chunkSize, cr.version, nil
+	return cid, cr.replicas[0].Address, sec, cr.replicas[0].NodeID, lid, idx, chunkOff, s.chunkSize, cr.version, nil
 }
 
 // CommitChunk records successful write.
@@ -572,7 +589,7 @@ func (s *Store) CommitChunk(_ context.Context, fpath string, chunkID domain.Chun
 // GetChunkForRead resolves chunk for a file offset.
 func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 	chunkID domain.ChunkID,
-	replicas []string,
+	replicaLocs []domain.ChunkReplica,
 	chunkOff int64,
 	available int64,
 	version uint64,
@@ -617,5 +634,5 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 		avail = 0
 	}
 
-	return cid, append([]string(nil), cr.replicas...), chunkOff, avail, cr.version, nil
+	return cid, append([]domain.ChunkReplica(nil), cr.replicas...), chunkOff, avail, cr.version, nil
 }

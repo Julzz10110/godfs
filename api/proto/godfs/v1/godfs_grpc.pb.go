@@ -467,6 +467,7 @@ const (
 	ChunkService_ReadChunk_FullMethodName   = "/godfs.v1.ChunkService/ReadChunk"
 	ChunkService_DeleteChunk_FullMethodName = "/godfs.v1.ChunkService/DeleteChunk"
 	ChunkService_SyncChunk_FullMethodName   = "/godfs.v1.ChunkService/SyncChunk"
+	ChunkService_PullChunk_FullMethodName   = "/godfs.v1.ChunkService/PullChunk"
 )
 
 // ChunkServiceClient is the client API for ChunkService service.
@@ -478,6 +479,8 @@ type ChunkServiceClient interface {
 	DeleteChunk(ctx context.Context, in *DeleteChunkRequest, opts ...grpc.CallOption) (*DeleteChunkResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error)
+	// Pull streams a chunk from another peer into local storage (recovery / admin).
+	PullChunk(ctx context.Context, in *PullChunkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullChunkResponse], error)
 }
 
 type chunkServiceClient struct {
@@ -543,6 +546,25 @@ func (c *chunkServiceClient) SyncChunk(ctx context.Context, opts ...grpc.CallOpt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChunkService_SyncChunkClient = grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse]
 
+func (c *chunkServiceClient) PullChunk(ctx context.Context, in *PullChunkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullChunkResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ChunkService_ServiceDesc.Streams[3], ChunkService_PullChunk_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[PullChunkRequest, PullChunkResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ChunkService_PullChunkClient = grpc.ServerStreamingClient[PullChunkResponse]
+
 // ChunkServiceServer is the server API for ChunkService service.
 // All implementations must embed UnimplementedChunkServiceServer
 // for forward compatibility.
@@ -552,6 +574,8 @@ type ChunkServiceServer interface {
 	DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error
+	// Pull streams a chunk from another peer into local storage (recovery / admin).
+	PullChunk(*PullChunkRequest, grpc.ServerStreamingServer[PullChunkResponse]) error
 	mustEmbedUnimplementedChunkServiceServer()
 }
 
@@ -573,6 +597,9 @@ func (UnimplementedChunkServiceServer) DeleteChunk(context.Context, *DeleteChunk
 }
 func (UnimplementedChunkServiceServer) SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncChunk not implemented")
+}
+func (UnimplementedChunkServiceServer) PullChunk(*PullChunkRequest, grpc.ServerStreamingServer[PullChunkResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method PullChunk not implemented")
 }
 func (UnimplementedChunkServiceServer) mustEmbedUnimplementedChunkServiceServer() {}
 func (UnimplementedChunkServiceServer) testEmbeddedByValue()                      {}
@@ -638,6 +665,17 @@ func _ChunkService_SyncChunk_Handler(srv interface{}, stream grpc.ServerStream) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChunkService_SyncChunkServer = grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]
 
+func _ChunkService_PullChunk_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(PullChunkRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ChunkServiceServer).PullChunk(m, &grpc.GenericServerStream[PullChunkRequest, PullChunkResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ChunkService_PullChunkServer = grpc.ServerStreamingServer[PullChunkResponse]
+
 // ChunkService_ServiceDesc is the grpc.ServiceDesc for ChunkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -665,6 +703,11 @@ var ChunkService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "SyncChunk",
 			Handler:       _ChunkService_SyncChunk_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "PullChunk",
+			Handler:       _ChunkService_PullChunk_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "api/proto/godfs/v1/godfs.proto",

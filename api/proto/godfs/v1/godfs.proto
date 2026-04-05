@@ -94,6 +94,7 @@ message PrepareWriteResponse {
   uint64 version = 7;
   // Addresses of non-primary replicas (primary writes here after local commit).
   repeated string secondary_addresses = 8;
+  string primary_node_id = 9;
 }
 
 message CommitChunkRequest {
@@ -113,12 +114,19 @@ message GetChunkForReadRequest {
   int64 offset = 2;
 }
 
+message ReplicaLocation {
+  string node_id = 1;
+  string grpc_address = 2;
+}
+
 message GetChunkForReadResponse {
   string chunk_id = 1;
+  // Deprecated: use replica_locations; kept for older clients.
   repeated string replica_addresses = 2;
   int64 chunk_offset = 3;
   int64 available_in_chunk = 4;
   uint64 version = 5;
+  repeated ReplicaLocation replica_locations = 6;
 }
 
 service ChunkService {
@@ -127,6 +135,8 @@ service ChunkService {
   rpc DeleteChunk(DeleteChunkRequest) returns (DeleteChunkResponse);
   // Primary pushes full chunk bytes to a secondary (internal replication).
   rpc SyncChunk(stream SyncChunkRequest) returns (SyncChunkResponse);
+  // Pull streams a chunk from another peer into local storage (recovery / admin).
+  rpc PullChunk(PullChunkRequest) returns (stream PullChunkResponse);
 }
 
 message WriteChunkRequest {
@@ -178,4 +188,13 @@ message SyncChunkMeta {
 
 message SyncChunkResponse {
   int64 bytes_copied = 1;
+}
+
+message PullChunkRequest {
+  string chunk_id = 1;
+  string source_peer_address = 2;
+}
+
+message PullChunkResponse {
+  bytes data = 1;
 }

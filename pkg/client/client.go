@@ -232,11 +232,19 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(gr.ReplicaAddresses) == 0 {
+		var reps []string
+		if len(gr.ReplicaLocations) > 0 {
+			for _, loc := range gr.ReplicaLocations {
+				reps = append(reps, loc.GrpcAddress)
+			}
+		} else {
+			reps = gr.ReplicaAddresses
+		}
+		if len(reps) == 0 {
 			return nil, fmt.Errorf("no replicas")
 		}
 		var readErr error
-		for _, rep := range gr.ReplicaAddresses {
+		for _, rep := range reps {
 			cc, err := c.chunkConn(rep)
 			if err != nil {
 				readErr = err

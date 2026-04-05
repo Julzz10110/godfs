@@ -21,7 +21,7 @@ func TestStoreMkdirCreateWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cid, addr, _, _, idx, off, _, ver, err := s.PrepareWrite(ctx, "/data/a.txt", 0, 10)
+	cid, addr, _, _, _, idx, off, _, ver, err := s.PrepareWrite(ctx, "/data/a.txt", 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
