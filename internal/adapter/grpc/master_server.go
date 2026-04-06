@@ -12,14 +12,34 @@ import (
 	"google.golang.org/grpc/status"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
-	"godfs/internal/adapter/repository/metadata"
 	"godfs/internal/domain"
+	"godfs/internal/usecase"
 )
 
 // MasterServer implements godfsv1.MasterServiceServer.
 type MasterServer struct {
 	godfsv1.UnimplementedMasterServiceServer
-	Store *metadata.Store
+	Store usecase.MasterStore
+}
+
+type leaderAware interface {
+	IsLeader() bool
+	LeaderGRPCAddr() string
+}
+
+func (m *MasterServer) ensureLeader() error {
+	la, ok := m.Store.(leaderAware)
+	if !ok {
+		return nil // single-master mode
+	}
+	if la.IsLeader() {
+		return nil
+	}
+	ldr := la.LeaderGRPCAddr()
+	if ldr != "" {
+		return status.Errorf(codes.FailedPrecondition, "not leader (leader_grpc=%s)", ldr)
+	}
+	return status.Error(codes.FailedPrecondition, "not leader")
 }
 
 func mapErr(err error) error {
@@ -52,6 +72,9 @@ func mapErr(err error) error {
 }
 
 func (m *MasterServer) RegisterNode(ctx context.Context, req *godfsv1.RegisterNodeRequest) (*godfsv1.RegisterNodeResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	err := m.Store.RegisterNode(ctx, domain.ChunkNode{
 		ID:            domain.NodeID(req.NodeId),
 		GRPCAddress:   req.GrpcAddress,
@@ -64,6 +87,9 @@ func (m *MasterServer) RegisterNode(ctx context.Context, req *godfsv1.RegisterNo
 }
 
 func (m *MasterServer) CreateFile(ctx context.Context, req *godfsv1.CreateFileRequest) (*godfsv1.CreateFileResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	id, err := m.Store.CreateFile(ctx, req.Path)
 	if err != nil {
 		return nil, mapErr(err)
@@ -72,6 +98,9 @@ func (m *MasterServer) CreateFile(ctx context.Context, req *godfsv1.CreateFileRe
 }
 
 func (m *MasterServer) Mkdir(ctx context.Context, req *godfsv1.MkdirRequest) (*godfsv1.MkdirResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	if err := m.Store.Mkdir(ctx, req.Path); err != nil {
 		return nil, mapErr(err)
 	}
@@ -79,6 +108,9 @@ func (m *MasterServer) Mkdir(ctx context.Context, req *godfsv1.MkdirRequest) (*g
 }
 
 func (m *MasterServer) Delete(ctx context.Context, req *godfsv1.DeleteRequest) (*godfsv1.DeleteResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	chunks, err := m.Store.Delete(ctx, req.Path)
 	if err != nil {
 		return nil, mapErr(err)
@@ -125,6 +157,9 @@ func deleteChunkOnce(ctx context.Context, addr, chunkID string) error {
 }
 
 func (m *MasterServer) Rename(ctx context.Context, req *godfsv1.RenameRequest) (*godfsv1.RenameResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	if err := m.Store.Rename(ctx, req.OldPath, req.NewPath); err != nil {
 		return nil, mapErr(err)
 	}
@@ -163,6 +198,9 @@ func (m *MasterServer) ListDir(ctx context.Context, req *godfsv1.ListDirRequest)
 }
 
 func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWriteRequest) (*godfsv1.PrepareWriteResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	cid, addr, sec, primaryID, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
 	if err != nil {
 		return nil, mapErr(err)
@@ -181,6 +219,9 @@ func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWri
 }
 
 func (m *MasterServer) CommitChunk(ctx context.Context, req *godfsv1.CommitChunkRequest) (*godfsv1.CommitChunkResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
 	err := m.Store.CommitChunk(ctx, req.Path, domain.ChunkID(req.ChunkId), req.ChunkIndex, req.ChunkOffset, req.Written, req.ChecksumSha256, req.Version)
 	if err != nil {
 		return nil, mapErr(err)

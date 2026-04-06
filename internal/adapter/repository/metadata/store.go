@@ -37,12 +37,6 @@ type Store struct {
 	leaseDur time.Duration
 }
 
-// ChunkDeleteInfo describes where chunk bytes may still exist after metadata removal.
-type ChunkDeleteInfo struct {
-	ChunkID  domain.ChunkID
-	Replicas []string
-}
-
 type fileRec struct {
 	id       domain.FileID
 	chunks   []domain.ChunkID
@@ -215,7 +209,7 @@ func (s *Store) CreateFile(_ context.Context, p string) (domain.FileID, error) {
 }
 
 // Delete removes a file or empty directory. For files, returns replica locations for chunk GC.
-func (s *Store) Delete(_ context.Context, p string) ([]ChunkDeleteInfo, error) {
+func (s *Store) Delete(_ context.Context, p string) ([]domain.ChunkDeleteInfo, error) {
 	fp, err := normalizePath(p)
 	if err == nil {
 		s.mu.Lock()
@@ -236,7 +230,7 @@ func (s *Store) Delete(_ context.Context, p string) ([]ChunkDeleteInfo, error) {
 	return nil, err
 }
 
-func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
+func (s *Store) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -244,7 +238,7 @@ func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	var infos []ChunkDeleteInfo
+	var infos []domain.ChunkDeleteInfo
 	for _, cid := range fr.chunks {
 		if cid == "" {
 			continue
@@ -258,7 +252,7 @@ func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
 			addrs[i] = r.Address
 		}
 		s.releaseChunkFromReplicas(cr.replicas)
-		infos = append(infos, ChunkDeleteInfo{
+		infos = append(infos, domain.ChunkDeleteInfo{
 			ChunkID:  cid,
 			Replicas: addrs,
 		})
@@ -268,7 +262,7 @@ func (s *Store) deleteFile(fp string) ([]ChunkDeleteInfo, error) {
 	return infos, nil
 }
 
-func (s *Store) deleteDir(d string) ([]ChunkDeleteInfo, error) {
+func (s *Store) deleteDir(d string) ([]domain.ChunkDeleteInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
