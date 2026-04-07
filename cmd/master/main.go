@@ -32,6 +32,12 @@ func main() {
 	nodeID := os.Getenv("GODFS_MASTER_NODE_ID")
 	peersRaw := os.Getenv("GODFS_MASTER_PEERS")
 	bootstrap := strings.EqualFold(os.Getenv("GODFS_MASTER_BOOTSTRAP"), "true") || os.Getenv("GODFS_MASTER_BOOTSTRAP") == "1"
+	nodeDeadAfter := 10 * time.Second
+	if v := os.Getenv("GODFS_NODE_DEAD_AFTER"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			nodeDeadAfter = d
+		}
+	}
 
 	chunkSize := int64(config.DefaultChunkSize)
 	if v := os.Getenv("GODFS_CHUNK_SIZE_BYTES"); v != "" {
@@ -75,6 +81,7 @@ func main() {
 			ChunkSize:  chunkSize,
 			Replication: replication,
 			LeaseDur:   leaseDur,
+			NodeDeadAfter: nodeDeadAfter,
 			Peers:      peers,
 			Bootstrap:  bootstrap,
 		})

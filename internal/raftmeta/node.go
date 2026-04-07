@@ -24,6 +24,7 @@ type NodeConfig struct {
 	ChunkSize    int64
 	Replication  int
 	LeaseDur     time.Duration
+	NodeDeadAfter time.Duration
 
 	Peers        map[string]raft.ServerAddress
 	Bootstrap    bool
@@ -57,6 +58,9 @@ func StartNode(cfg NodeConfig) (*Node, error) {
 	if cfg.LeaseDur <= 0 {
 		cfg.LeaseDur = time.Duration(config.DefaultLeaseSec) * time.Second
 	}
+	if cfg.NodeDeadAfter < 0 {
+		cfg.NodeDeadAfter = 0
+	}
 	if err := os.MkdirAll(cfg.RaftDir, 0o750); err != nil {
 		return nil, err
 	}
@@ -86,7 +90,7 @@ func StartNode(cfg NodeConfig) (*Node, error) {
 		return nil, err
 	}
 
-	fsm := NewFSM(NewState(cfg.ChunkSize, cfg.Replication, cfg.LeaseDur))
+	fsm := NewFSM(NewState(cfg.ChunkSize, cfg.Replication, cfg.LeaseDur, cfg.NodeDeadAfter))
 	r, err := raft.NewRaft(rconf, fsm, logStore, stableStore, snapStore, transport)
 	if err != nil {
 		return nil, err

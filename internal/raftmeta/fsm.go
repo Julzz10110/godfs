@@ -62,11 +62,12 @@ func (f *FSM) Apply(l *raft.Log) any {
 		var req struct {
 			Path   string
 			FileID domain.FileID
+			AtUnix int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
 		}
-		_, err := f.st.CreateFile(req.Path, req.FileID)
+		_, err := f.st.CreateFile(req.Path, req.FileID, time.Unix(req.AtUnix, 0).UTC())
 		return err
 
 	case cmdRename:
@@ -97,11 +98,12 @@ func (f *FSM) Apply(l *raft.Log) any {
 			Length    int64
 			LeaseID   domain.LeaseID
 			NewChunkID domain.ChunkID
+			AtUnix    int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
 		}
-		res, err := f.st.PrepareWrite(req.Path, req.Offset, req.Length, req.LeaseID, req.NewChunkID)
+		res, err := f.st.PrepareWrite(req.Path, req.Offset, req.Length, req.LeaseID, req.NewChunkID, time.Unix(req.AtUnix, 0).UTC())
 		if err != nil {
 			return err
 		}
@@ -116,11 +118,12 @@ func (f *FSM) Apply(l *raft.Log) any {
 			Written    int64
 			Checksum   []byte
 			Version    uint64
+			AtUnix     int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
 		}
-		return f.st.CommitChunk(req.Path, req.ChunkID, req.ChunkIndex, req.ChunkOffset, req.Written, req.Checksum, req.Version)
+		return f.st.CommitChunk(req.Path, req.ChunkID, req.ChunkIndex, req.ChunkOffset, req.Written, req.Checksum, req.Version, time.Unix(req.AtUnix, 0).UTC())
 
 	case cmdHeartbeat:
 		var req struct {

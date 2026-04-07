@@ -16,6 +16,7 @@ type State struct {
 	ChunkSize         int64
 	ReplicationFactor int
 	LeaseDur          time.Duration
+	NodeDeadAfter     time.Duration
 
 	Nodes        []domain.ChunkNode
 	NodeUsedBytes map[domain.NodeID]int64
@@ -54,7 +55,7 @@ type nodeStatus struct {
 	UsedBytes int64
 }
 
-func NewState(chunkSize int64, replication int, leaseDur time.Duration) *State {
+func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDeadAfter time.Duration) *State {
 	if chunkSize <= 0 {
 		panic("chunkSize must be > 0")
 	}
@@ -64,10 +65,14 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration) *State {
 	if leaseDur <= 0 {
 		leaseDur = 60 * time.Second
 	}
+	if nodeDeadAfter < 0 {
+		nodeDeadAfter = 0
+	}
 	return &State{
 		ChunkSize:         chunkSize,
 		ReplicationFactor: replication,
 		LeaseDur:          leaseDur,
+		NodeDeadAfter:     nodeDeadAfter,
 		Dirs: map[string]struct{}{
 			"/": {},
 		},
@@ -136,16 +141,38 @@ func (s *State) Heartbeat(nodeID domain.NodeID, capacityBytes, usedBytes int64, 
 	st.UsedBytes = usedBytes
 }
 
-func (s *State) pickNodes(n int) ([]domain.ChunkNode, error) {
+func (s *State) pickNodesAt(n int, at time.Time) ([]domain.ChunkNode, error) {
 	if len(s.Nodes) == 0 {
 		return nil, domain.ErrNoChunkServer
 	}
-	out, err := placement.Pick(s.Nodes, n, s.NodeUsedBytes, s.PlacementRR)
+	candidates := s.Nodes
+	if s.NodeDeadAfter > 0 {
+		var filtered []domain.ChunkNode
+		for _, node := range s.Nodes {
+			if s.isAliveAt(node.ID, at) {
+				filtered = append(filtered, node)
+			}
+		}
+		candidates = filtered
+	}
+	if len(candidates) == 0 {
+		return nil, domain.ErrNoChunkServer
+	}
+	out, err := placement.Pick(candidates, n, s.NodeUsedBytes, s.PlacementRR)
 	if err != nil {
 		return nil, err
 	}
 	s.PlacementRR++
 	return out, nil
+}
+
+func (s *State) isAliveAt(nodeID domain.NodeID, at time.Time) bool {
+	st, ok := s.NodeStatus[nodeID]
+	if !ok || st.LastSeen.IsZero() || s.NodeDeadAfter <= 0 {
+		return true
+	}
+	// alive if lastSeen + deadAfter >= at
+	return !st.LastSeen.Add(s.NodeDeadAfter).Before(at)
 }
 
 func (s *State) reserveChunkOnNodes(nodes []domain.ChunkNode) {
@@ -180,7 +207,7 @@ func (s *State) Mkdir(p string) error {
 	return nil
 }
 
-func (s *State) CreateFile(p string, id domain.FileID) (domain.FileID, error) {
+func (s *State) CreateFile(p string, id domain.FileID, at time.Time) (domain.FileID, error) {
 	fp, err := normalizePath(p)
 	if err != nil {
 		return "", err
@@ -192,13 +219,12 @@ func (s *State) CreateFile(p string, id domain.FileID) (domain.FileID, error) {
 	if _, ok := s.Dirs[par]; !ok {
 		return "", domain.ErrParentNotFound
 	}
-	now := time.Now().UTC()
 	s.Files[fp] = &fileRec{
 		ID:       id,
 		Chunks:   nil,
 		Size:     0,
-		Created:  now,
-		Modified: now,
+		Created:  at,
+		Modified: at,
 		Mode:     0,
 	}
 	return id, nil
@@ -352,7 +378,7 @@ type PrepareWriteResult struct {
 	Version         uint64
 }
 
-func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.LeaseID, newChunkID domain.ChunkID) (PrepareWriteResult, error) {
+func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.LeaseID, newChunkID domain.ChunkID, at time.Time) (PrepareWriteResult, error) {
 	fp, err := normalizePath(path)
 	if err != nil {
 		return PrepareWriteResult{}, err
@@ -374,16 +400,15 @@ func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.L
 		fr.Chunks = append(fr.Chunks, "")
 	}
 	cid := fr.Chunks[idx]
-	now := time.Now().UTC()
 
 	if cid == "" {
-		nodes, err := s.pickNodes(s.ReplicationFactor)
+		nodes, err := s.pickNodesAt(s.ReplicationFactor, at)
 		if err != nil {
 			return PrepareWriteResult{}, err
 		}
 		s.reserveChunkOnNodes(nodes)
 		cid = newChunkID
-		exp := now.Add(s.LeaseDur)
+		exp := at.Add(s.LeaseDur)
 		replicas := make([]domain.ChunkReplica, len(nodes))
 		for i := range nodes {
 			replicas[i] = domain.ChunkReplica{NodeID: nodes[i].ID, Address: nodes[i].GRPCAddress}
@@ -396,7 +421,7 @@ func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.L
 			LeaseExp: exp,
 		}
 		fr.Chunks[idx] = cid
-		fr.Modified = now
+		fr.Modified = at
 		var sec []string
 		for i := 1; i < len(replicas); i++ {
 			sec = append(sec, replicas[i].Address)
@@ -419,12 +444,12 @@ func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.L
 		return PrepareWriteResult{}, domain.ErrNotFound
 	}
 	cr.LeaseID = leaseID
-	cr.LeaseExp = now.Add(s.LeaseDur)
+	cr.LeaseExp = at.Add(s.LeaseDur)
 	var sec []string
 	for i := 1; i < len(cr.Replicas); i++ {
 		sec = append(sec, cr.Replicas[i].Address)
 	}
-	fr.Modified = now
+	fr.Modified = at
 	return PrepareWriteResult{
 		ChunkID:        cid,
 		PrimaryAddr:    cr.Replicas[0].Address,
@@ -438,7 +463,7 @@ func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.L
 	}, nil
 }
 
-func (s *State) CommitChunk(path string, chunkID domain.ChunkID, chunkIndex, chunkOffset, written int64, checksum []byte, version uint64) error {
+func (s *State) CommitChunk(path string, chunkID domain.ChunkID, chunkIndex, chunkOffset, written int64, checksum []byte, version uint64, at time.Time) error {
 	fp, err := normalizePath(path)
 	if err != nil {
 		return err
@@ -464,7 +489,7 @@ func (s *State) CommitChunk(path string, chunkID domain.ChunkID, chunkIndex, chu
 	if end > fr.Size {
 		fr.Size = end
 	}
-	fr.Modified = time.Now().UTC()
+	fr.Modified = at
 	return nil
 }
 

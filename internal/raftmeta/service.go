@@ -89,10 +89,12 @@ func (s *Service) Mkdir(ctx context.Context, p string) error {
 
 func (s *Service) CreateFile(ctx context.Context, p string) (domain.FileID, error) {
 	id := domain.FileID(uuid.NewString())
+	at := time.Now().UTC().Unix()
 	b, err := encodeCommand(cmdCreateFile, struct {
 		Path   string
 		FileID domain.FileID
-	}{Path: p, FileID: id})
+		AtUnix int64
+	}{Path: p, FileID: id, AtUnix: at})
 	if err != nil {
 		return "", err
 	}
@@ -150,13 +152,15 @@ func (s *Service) PrepareWrite(ctx context.Context, p string, offset, length int
 ) {
 	leaseID := domain.LeaseID(uuid.NewString())
 	newChunkID := domain.ChunkID(uuid.NewString())
+	at := time.Now().UTC().Unix()
 	b, err := encodeCommand(cmdPrepareWrite, struct {
 		Path       string
 		Offset     int64
 		Length     int64
 		LeaseID    domain.LeaseID
 		NewChunkID domain.ChunkID
-	}{Path: p, Offset: offset, Length: length, LeaseID: leaseID, NewChunkID: newChunkID})
+		AtUnix     int64
+	}{Path: p, Offset: offset, Length: length, LeaseID: leaseID, NewChunkID: newChunkID, AtUnix: at})
 	if err != nil {
 		return "", "", nil, "", "", 0, 0, 0, 0, err
 	}
@@ -172,6 +176,7 @@ func (s *Service) PrepareWrite(ctx context.Context, p string, offset, length int
 }
 
 func (s *Service) CommitChunk(ctx context.Context, p string, chunkID domain.ChunkID, chunkIndex, chunkOffset, written int64, checksum []byte, version uint64) error {
+	at := time.Now().UTC().Unix()
 	b, err := encodeCommand(cmdCommitChunk, struct {
 		Path        string
 		ChunkID     domain.ChunkID
@@ -180,7 +185,8 @@ func (s *Service) CommitChunk(ctx context.Context, p string, chunkID domain.Chun
 		Written     int64
 		Checksum    []byte
 		Version     uint64
-	}{Path: p, ChunkID: chunkID, ChunkIndex: chunkIndex, ChunkOffset: chunkOffset, Written: written, Checksum: checksum, Version: version})
+		AtUnix      int64
+	}{Path: p, ChunkID: chunkID, ChunkIndex: chunkIndex, ChunkOffset: chunkOffset, Written: written, Checksum: checksum, Version: version, AtUnix: at})
 	if err != nil {
 		return err
 	}
@@ -192,7 +198,25 @@ func (s *Service) GetChunkForRead(ctx context.Context, p string, offset int64) (
 	_ = ctx
 	s.fsm.mu.RLock()
 	defer s.fsm.mu.RUnlock()
-	return s.fsm.st.GetChunkForRead(p, offset)
+	cid, reps, off, avail, ver, sum, err := s.fsm.st.GetChunkForRead(p, offset)
+	if err != nil {
+		return "", nil, 0, 0, 0, nil, err
+	}
+	// Prefer alive replicas first (best effort; uses local clock).
+	if s.fsm.st.NodeDeadAfter > 0 && len(reps) > 1 {
+		at := time.Now().UTC()
+		alive := make([]domain.ChunkReplica, 0, len(reps))
+		dead := make([]domain.ChunkReplica, 0, len(reps))
+		for _, r := range reps {
+			if s.fsm.st.isAliveAt(r.NodeID, at) {
+				alive = append(alive, r)
+			} else {
+				dead = append(dead, r)
+			}
+		}
+		reps = append(alive, dead...)
+	}
+	return cid, reps, off, avail, ver, sum, nil
 }
 
 func (s *Service) Heartbeat(ctx context.Context, nodeID domain.NodeID, capacityBytes, usedBytes int64) error {
