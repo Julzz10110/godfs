@@ -62,6 +62,30 @@ func main() {
 	}
 	log.Printf("registered with master %s as %s @ %s", master, nodeID, advertise)
 
+	hbInterval := 2 * time.Second
+	if v := os.Getenv("GODFS_HEARTBEAT_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			hbInterval = d
+		}
+	}
+	go func() {
+		t := time.NewTicker(hbInterval)
+		defer t.Stop()
+		for range t.C {
+			hctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_, err := mc.Heartbeat(hctx, &godfsv1.HeartbeatRequest{
+				NodeId:        nodeID,
+				GrpcAddress:   advertise,
+				CapacityBytes: 1 << 40,
+				UsedBytes:     0,
+			})
+			cancel()
+			if err != nil {
+				log.Printf("heartbeat error: %v", err)
+			}
+		}
+	}()
+
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)

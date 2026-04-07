@@ -29,6 +29,7 @@ const (
 	MasterService_PrepareWrite_FullMethodName    = "/godfs.v1.MasterService/PrepareWrite"
 	MasterService_CommitChunk_FullMethodName     = "/godfs.v1.MasterService/CommitChunk"
 	MasterService_GetChunkForRead_FullMethodName = "/godfs.v1.MasterService/GetChunkForRead"
+	MasterService_Heartbeat_FullMethodName       = "/godfs.v1.MasterService/Heartbeat"
 )
 
 // MasterServiceClient is the client API for MasterService service.
@@ -45,6 +46,7 @@ type MasterServiceClient interface {
 	PrepareWrite(ctx context.Context, in *PrepareWriteRequest, opts ...grpc.CallOption) (*PrepareWriteResponse, error)
 	CommitChunk(ctx context.Context, in *CommitChunkRequest, opts ...grpc.CallOption) (*CommitChunkResponse, error)
 	GetChunkForRead(ctx context.Context, in *GetChunkForReadRequest, opts ...grpc.CallOption) (*GetChunkForReadResponse, error)
+	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
 }
 
 type masterServiceClient struct {
@@ -155,6 +157,16 @@ func (c *masterServiceClient) GetChunkForRead(ctx context.Context, in *GetChunkF
 	return out, nil
 }
 
+func (c *masterServiceClient) Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HeartbeatResponse)
+	err := c.cc.Invoke(ctx, MasterService_Heartbeat_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MasterServiceServer is the server API for MasterService service.
 // All implementations must embed UnimplementedMasterServiceServer
 // for forward compatibility.
@@ -169,6 +181,7 @@ type MasterServiceServer interface {
 	PrepareWrite(context.Context, *PrepareWriteRequest) (*PrepareWriteResponse, error)
 	CommitChunk(context.Context, *CommitChunkRequest) (*CommitChunkResponse, error)
 	GetChunkForRead(context.Context, *GetChunkForReadRequest) (*GetChunkForReadResponse, error)
+	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 	mustEmbedUnimplementedMasterServiceServer()
 }
 
@@ -208,6 +221,9 @@ func (UnimplementedMasterServiceServer) CommitChunk(context.Context, *CommitChun
 }
 func (UnimplementedMasterServiceServer) GetChunkForRead(context.Context, *GetChunkForReadRequest) (*GetChunkForReadResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetChunkForRead not implemented")
+}
+func (UnimplementedMasterServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
 }
 func (UnimplementedMasterServiceServer) mustEmbedUnimplementedMasterServiceServer() {}
 func (UnimplementedMasterServiceServer) testEmbeddedByValue()                       {}
@@ -410,6 +426,24 @@ func _MasterService_GetChunkForRead_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MasterService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HeartbeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).Heartbeat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_Heartbeat_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).Heartbeat(ctx, req.(*HeartbeatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MasterService_ServiceDesc is the grpc.ServiceDesc for MasterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -456,6 +490,10 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetChunkForRead",
 			Handler:    _MasterService_GetChunkForRead_Handler,
+		},
+		{
+			MethodName: "Heartbeat",
+			Handler:    _MasterService_Heartbeat_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

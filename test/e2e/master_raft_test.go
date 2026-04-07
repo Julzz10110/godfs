@@ -162,6 +162,24 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
+	// Heartbeat should be accepted by the leader (and replicated to followers via Raft state).
+	hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer hcancel()
+	connHB, err := grpc.NewClient(leader.grpcAddr, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("dial leader for heartbeat: %v", err)
+	}
+	defer connHB.Close()
+	mc := godfsv1.NewMasterServiceClient(connHB)
+	if _, err := mc.Heartbeat(hctx, &godfsv1.HeartbeatRequest{
+		NodeId:        "chunk-1",
+		GrpcAddress:   "127.0.0.1:8000",
+		CapacityBytes: 100,
+		UsedBytes:     12,
+	}); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+
 	// Ensure followers have the new file metadata (eventual apply).
 	for _, m := range masters {
 		c2, err := client.NewWithChunkSize(m.grpcAddr, chunkSize)

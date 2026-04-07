@@ -15,6 +15,7 @@ service MasterService {
   rpc PrepareWrite(PrepareWriteRequest) returns (PrepareWriteResponse);
   rpc CommitChunk(CommitChunkRequest) returns (CommitChunkResponse);
   rpc GetChunkForRead(GetChunkForReadRequest) returns (GetChunkForReadResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
 
 message RegisterNodeRequest {
@@ -129,6 +130,17 @@ message GetChunkForReadResponse {
   repeated ReplicaLocation replica_locations = 6;
   // SHA-256 of the full on-disk chunk after last commit (32 bytes). Clients may verify when chunk_offset == 0.
   bytes chunk_checksum_sha256 = 7;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string grpc_address = 2;
+  int64 capacity_bytes = 3;
+  int64 used_bytes = 4;
+}
+
+message HeartbeatResponse {
+  int64 server_time_unix = 1;
 }
 
 service ChunkService {

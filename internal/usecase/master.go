@@ -42,5 +42,9 @@ type MasterStore interface {
 		checksum []byte,
 		err error,
 	)
+
+	// Heartbeat records liveness and capacity telemetry for a chunk node.
+	// Implementations may persist it (e.g. via Raft) or keep it ephemeral.
+	Heartbeat(ctx context.Context, nodeID domain.NodeID, capacityBytes, usedBytes int64) error
 }
 

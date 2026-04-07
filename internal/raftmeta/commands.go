@@ -14,6 +14,7 @@ const (
 	cmdDelete       commandType = "delete"
 	cmdPrepareWrite commandType = "prepare_write"
 	cmdCommitChunk  commandType = "commit_chunk"
+	cmdHeartbeat    commandType = "heartbeat"
 )
 
 type commandEnvelope struct {

@@ -77,6 +77,11 @@ func NewStore(chunkSize int64, replication int) *Store {
 	}
 }
 
+// Heartbeat is a no-op for the in-memory store.
+func (s *Store) Heartbeat(_ context.Context, _ domain.NodeID, _ int64, _ int64) error {
+	return nil
+}
+
 func normalizePath(p string) (string, error) {
 	if p == "" || p[0] != '/' {
 		return "", domain.ErrInvalidPath
@@ -289,7 +294,6 @@ func (s *Store) deleteDir(d string) ([]domain.ChunkDeleteInfo, error) {
 	delete(s.dirs, d)
 	return nil, nil
 }
-
 
 // Rename atomically renames a file or directory.
 func (s *Store) Rename(_ context.Context, oldPath, newPath string) error {

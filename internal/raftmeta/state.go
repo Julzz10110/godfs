@@ -25,6 +25,9 @@ type State struct {
 	Dirs  map[string]struct{}
 	Files map[string]*fileRec
 	Chunks map[domain.ChunkID]*chunkRec
+
+	// NodeStatus tracks liveness and capacity telemetry reported by ChunkServers.
+	NodeStatus map[domain.NodeID]*nodeStatus
 }
 
 type fileRec struct {
@@ -43,6 +46,12 @@ type chunkRec struct {
 	Checksum []byte
 	LeaseID  domain.LeaseID
 	LeaseExp time.Time
+}
+
+type nodeStatus struct {
+	LastSeen time.Time
+	CapacityBytes int64
+	UsedBytes int64
 }
 
 func NewState(chunkSize int64, replication int, leaseDur time.Duration) *State {
@@ -66,6 +75,7 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration) *State {
 		Chunks:        map[domain.ChunkID]*chunkRec{},
 		NodeSet:       map[domain.NodeID]int{},
 		NodeUsedBytes: map[domain.NodeID]int64{},
+		NodeStatus:    map[domain.NodeID]*nodeStatus{},
 	}
 }
 
@@ -109,7 +119,21 @@ func (s *State) RegisterNode(n domain.ChunkNode) error {
 	if _, ok := s.NodeUsedBytes[n.ID]; !ok {
 		s.NodeUsedBytes[n.ID] = 0
 	}
+	if _, ok := s.NodeStatus[n.ID]; !ok {
+		s.NodeStatus[n.ID] = &nodeStatus{}
+	}
 	return nil
+}
+
+func (s *State) Heartbeat(nodeID domain.NodeID, capacityBytes, usedBytes int64, at time.Time) {
+	st, ok := s.NodeStatus[nodeID]
+	if !ok {
+		st = &nodeStatus{}
+		s.NodeStatus[nodeID] = st
+	}
+	st.LastSeen = at
+	st.CapacityBytes = capacityBytes
+	st.UsedBytes = usedBytes
 }
 
 func (s *State) pickNodes(n int) ([]domain.ChunkNode, error) {

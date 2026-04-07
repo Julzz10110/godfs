@@ -253,3 +253,13 @@ func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChun
 		ChunkChecksumSha256:   cksum,
 	}, nil
 }
+
+func (m *MasterServer) Heartbeat(ctx context.Context, req *godfsv1.HeartbeatRequest) (*godfsv1.HeartbeatResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	if err := m.Store.Heartbeat(ctx, domain.NodeID(req.NodeId), req.CapacityBytes, req.UsedBytes); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.HeartbeatResponse{ServerTimeUnix: time.Now().UTC().Unix()}, nil
+}

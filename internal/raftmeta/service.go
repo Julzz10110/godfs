@@ -195,6 +195,21 @@ func (s *Service) GetChunkForRead(ctx context.Context, p string, offset int64) (
 	return s.fsm.st.GetChunkForRead(p, offset)
 }
 
+func (s *Service) Heartbeat(ctx context.Context, nodeID domain.NodeID, capacityBytes, usedBytes int64) error {
+	at := time.Now().UTC().Unix()
+	b, err := encodeCommand(cmdHeartbeat, struct {
+		NodeID        domain.NodeID
+		CapacityBytes int64
+		UsedBytes     int64
+		AtUnix        int64
+	}{NodeID: nodeID, CapacityBytes: capacityBytes, UsedBytes: usedBytes, AtUnix: at})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
 var ErrNotLeader = errors.New("not raft leader")
 
 // ParsePeers parses a comma-separated list of peers.

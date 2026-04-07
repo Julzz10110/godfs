@@ -122,6 +122,19 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return f.st.CommitChunk(req.Path, req.ChunkID, req.ChunkIndex, req.ChunkOffset, req.Written, req.Checksum, req.Version)
 
+	case cmdHeartbeat:
+		var req struct {
+			NodeID       domain.NodeID
+			CapacityBytes int64
+			UsedBytes    int64
+			AtUnix       int64
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		f.st.Heartbeat(req.NodeID, req.CapacityBytes, req.UsedBytes, time.Unix(req.AtUnix, 0).UTC())
+		return nil
+
 	default:
 		return fmt.Errorf("unknown command type: %s", env.Type)
 	}
