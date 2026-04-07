@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -36,6 +37,12 @@ func main() {
 	if v := os.Getenv("GODFS_NODE_DEAD_AFTER"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			nodeDeadAfter = d
+		}
+	}
+	rebalanceEvery := 5 * time.Second
+	if v := os.Getenv("GODFS_REBALANCE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			rebalanceEvery = d
 		}
 	}
 
@@ -88,8 +95,28 @@ func main() {
 		if err != nil {
 			log.Fatalf("start raft: %v", err)
 		}
-		store = raftmeta.NewService(node.Raft, node.FSM, grpcByRaft)
+		rstore := raftmeta.NewService(node.Raft, node.FSM, grpcByRaft)
+		store = rstore
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
+
+		if rebalanceEvery > 0 {
+			go func() {
+				t := time.NewTicker(rebalanceEvery)
+				defer t.Stop()
+				for range t.C {
+					if !rstore.IsLeader() {
+						continue
+					}
+					act, err := rstore.PlanRebalance(time.Now().UTC())
+					if err != nil || act == nil {
+						continue
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					_ = rstore.ExecuteRebalance(ctx, act)
+					cancel()
+				}
+			}()
+		}
 	} else {
 		store = metadata.NewStore(chunkSize, replication)
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)

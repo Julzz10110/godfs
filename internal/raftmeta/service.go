@@ -234,6 +234,21 @@ func (s *Service) Heartbeat(ctx context.Context, nodeID domain.NodeID, capacityB
 	return err
 }
 
+func (s *Service) AddReplica(ctx context.Context, chunkID domain.ChunkID, nodeID domain.NodeID, addr string) error {
+	at := time.Now().UTC().Unix()
+	b, err := encodeCommand(cmdAddReplica, struct {
+		ChunkID domain.ChunkID
+		NodeID  domain.NodeID
+		Address string
+		AtUnix  int64
+	}{ChunkID: chunkID, NodeID: nodeID, Address: addr, AtUnix: at})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
 var ErrNotLeader = errors.New("not raft leader")
 
 // ParsePeers parses a comma-separated list of peers.

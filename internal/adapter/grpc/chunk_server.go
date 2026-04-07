@@ -102,14 +102,17 @@ func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.Ch
 			n = remain
 		}
 		rn, err := c.Store.ReadAt(req.ChunkId, off, buf[:n])
-		if err != nil {
-			return status.Errorf(codes.Internal, "read: %v", err)
-		}
 		if rn == 0 {
 			break
 		}
 		if err := stream.Send(&godfsv1.ReadChunkResponse{Data: buf[:rn]}); err != nil {
 			return err
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return status.Errorf(codes.Internal, "read: %v", err)
 		}
 		off += int64(rn)
 		remain -= int64(rn)

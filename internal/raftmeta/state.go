@@ -55,6 +55,28 @@ type nodeStatus struct {
 	UsedBytes int64
 }
 
+func (s *State) AddReplica(chunkID domain.ChunkID, rep domain.ChunkReplica, at time.Time) error {
+	cr, ok := s.Chunks[chunkID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	// ignore if already present
+	for _, r := range cr.Replicas {
+		if r.NodeID == rep.NodeID {
+			return nil
+		}
+	}
+	// require node exists in registry (so placement and usedBytes work)
+	if _, ok := s.NodeSet[rep.NodeID]; !ok {
+		return domain.ErrNotFound
+	}
+	// reserve space estimate
+	s.NodeUsedBytes[rep.NodeID] += s.ChunkSize
+	cr.Replicas = append(cr.Replicas, rep)
+	_ = at
+	return nil
+}
+
 func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDeadAfter time.Duration) *State {
 	if chunkSize <= 0 {
 		panic("chunkSize must be > 0")
