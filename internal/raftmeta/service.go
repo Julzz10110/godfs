@@ -274,6 +274,22 @@ func (s *Service) ClearPendingDeleteAddr(ctx context.Context, chunkID domain.Chu
 	return s.UpdatePendingDelete(ctx, chunkID, remaining)
 }
 
+func (s *Service) SnapshotNodes() []domain.ChunkNode {
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	return append([]domain.ChunkNode(nil), s.fsm.st.Nodes...)
+}
+
+func (s *Service) SnapshotChunkIDs() map[domain.ChunkID]struct{} {
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	out := make(map[domain.ChunkID]struct{}, len(s.fsm.st.Chunks))
+	for cid := range s.fsm.st.Chunks {
+		out[cid] = struct{}{}
+	}
+	return out
+}
+
 var ErrNotLeader = errors.New("not raft leader")
 
 // ParsePeers parses a comma-separated list of peers.

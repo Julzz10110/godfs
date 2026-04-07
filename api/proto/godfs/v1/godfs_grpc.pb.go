@@ -504,6 +504,7 @@ const (
 	ChunkService_WriteChunk_FullMethodName  = "/godfs.v1.ChunkService/WriteChunk"
 	ChunkService_ReadChunk_FullMethodName   = "/godfs.v1.ChunkService/ReadChunk"
 	ChunkService_DeleteChunk_FullMethodName = "/godfs.v1.ChunkService/DeleteChunk"
+	ChunkService_ListChunks_FullMethodName  = "/godfs.v1.ChunkService/ListChunks"
 	ChunkService_SyncChunk_FullMethodName   = "/godfs.v1.ChunkService/SyncChunk"
 	ChunkService_PullChunk_FullMethodName   = "/godfs.v1.ChunkService/PullChunk"
 )
@@ -515,6 +516,7 @@ type ChunkServiceClient interface {
 	WriteChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteChunkRequest, WriteChunkResponse], error)
 	ReadChunk(ctx context.Context, in *ReadChunkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadChunkResponse], error)
 	DeleteChunk(ctx context.Context, in *DeleteChunkRequest, opts ...grpc.CallOption) (*DeleteChunkResponse, error)
+	ListChunks(ctx context.Context, in *ListChunksRequest, opts ...grpc.CallOption) (*ListChunksResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error)
 	// Pull streams a chunk from another peer into local storage (recovery / admin).
@@ -571,6 +573,16 @@ func (c *chunkServiceClient) DeleteChunk(ctx context.Context, in *DeleteChunkReq
 	return out, nil
 }
 
+func (c *chunkServiceClient) ListChunks(ctx context.Context, in *ListChunksRequest, opts ...grpc.CallOption) (*ListChunksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChunksResponse)
+	err := c.cc.Invoke(ctx, ChunkService_ListChunks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *chunkServiceClient) SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ChunkService_ServiceDesc.Streams[2], ChunkService_SyncChunk_FullMethodName, cOpts...)
@@ -610,6 +622,7 @@ type ChunkServiceServer interface {
 	WriteChunk(grpc.ClientStreamingServer[WriteChunkRequest, WriteChunkResponse]) error
 	ReadChunk(*ReadChunkRequest, grpc.ServerStreamingServer[ReadChunkResponse]) error
 	DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error)
+	ListChunks(context.Context, *ListChunksRequest) (*ListChunksResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error
 	// Pull streams a chunk from another peer into local storage (recovery / admin).
@@ -632,6 +645,9 @@ func (UnimplementedChunkServiceServer) ReadChunk(*ReadChunkRequest, grpc.ServerS
 }
 func (UnimplementedChunkServiceServer) DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteChunk not implemented")
+}
+func (UnimplementedChunkServiceServer) ListChunks(context.Context, *ListChunksRequest) (*ListChunksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListChunks not implemented")
 }
 func (UnimplementedChunkServiceServer) SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncChunk not implemented")
@@ -696,6 +712,24 @@ func _ChunkService_DeleteChunk_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChunkService_ListChunks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChunksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChunkServiceServer).ListChunks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChunkService_ListChunks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChunkServiceServer).ListChunks(ctx, req.(*ListChunksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChunkService_SyncChunk_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(ChunkServiceServer).SyncChunk(&grpc.GenericServerStream[SyncChunkRequest, SyncChunkResponse]{ServerStream: stream})
 }
@@ -724,6 +758,10 @@ var ChunkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteChunk",
 			Handler:    _ChunkService_DeleteChunk_Handler,
+		},
+		{
+			MethodName: "ListChunks",
+			Handler:    _ChunkService_ListChunks_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -52,6 +52,12 @@ func main() {
 			gcEvery = d
 		}
 	}
+	orphanEvery := 30 * time.Second
+	if v := os.Getenv("GODFS_ORPHAN_GC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			orphanEvery = d
+		}
+	}
 
 	chunkSize := int64(config.DefaultChunkSize)
 	if v := os.Getenv("GODFS_CHUNK_SIZE_BYTES"); v != "" {
@@ -155,6 +161,21 @@ func main() {
 					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 					_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
 					ucancel()
+				}
+			}()
+		}
+
+		if orphanEvery > 0 {
+			go func() {
+				t := time.NewTicker(orphanEvery)
+				defer t.Stop()
+				for range t.C {
+					if !rstore.IsLeader() {
+						continue
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					_ = rstore.OrphanGCOnce(ctx)
+					cancel()
 				}
 			}()
 		}

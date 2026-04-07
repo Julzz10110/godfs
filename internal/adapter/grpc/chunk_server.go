@@ -126,3 +126,11 @@ func (c *ChunkServer) DeleteChunk(_ context.Context, req *godfsv1.DeleteChunkReq
 	}
 	return &godfsv1.DeleteChunkResponse{}, nil
 }
+
+func (c *ChunkServer) ListChunks(_ context.Context, _ *godfsv1.ListChunksRequest) (*godfsv1.ListChunksResponse, error) {
+	ids, err := c.Store.ListChunkIDs()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list: %v", err)
+	}
+	return &godfsv1.ListChunksResponse{ChunkIds: ids}, nil
+}

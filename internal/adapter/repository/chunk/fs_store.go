@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -111,4 +112,26 @@ func (f *FSStore) WriteFull(chunkID string, data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return os.WriteFile(f.path(chunkID), data, 0o640)
+}
+
+// ListChunkIDs returns all chunk IDs currently stored on disk (best-effort).
+func (f *FSStore) ListChunkIDs() ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entries, err := os.ReadDir(f.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".chk") {
+			continue
+		}
+		out = append(out, strings.TrimSuffix(name, ".chk"))
+	}
+	return out, nil
 }
