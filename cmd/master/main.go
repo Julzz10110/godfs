@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
@@ -43,6 +44,12 @@ func main() {
 	if v := os.Getenv("GODFS_REBALANCE_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			rebalanceEvery = d
+		}
+	}
+	gcEvery := 2 * time.Second
+	if v := os.Getenv("GODFS_GC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			gcEvery = d
 		}
 	}
 
@@ -114,6 +121,40 @@ func main() {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					_ = rstore.ExecuteRebalance(ctx, act)
 					cancel()
+				}
+			}()
+		}
+
+		if gcEvery > 0 {
+			go func() {
+				t := time.NewTicker(gcEvery)
+				defer t.Stop()
+				for range t.C {
+					if !rstore.IsLeader() {
+						continue
+					}
+					cid, addr, ok := rstore.PlanDeleteGC()
+					if !ok {
+						continue
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					err := func() error {
+						cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+						if err != nil {
+							return err
+						}
+						defer cc.Close()
+						cli := godfsv1.NewChunkServiceClient(cc)
+						_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
+						return err
+					}()
+					cancel()
+					if err != nil {
+						continue
+					}
+					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
+					ucancel()
 				}
 			}()
 		}

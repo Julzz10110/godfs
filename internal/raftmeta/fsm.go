@@ -150,6 +150,17 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return f.st.AddReplica(req.ChunkID, domain.ChunkReplica{NodeID: req.NodeID, Address: req.Address}, time.Unix(req.AtUnix, 0).UTC())
 
+	case cmdUpdatePendingDelete:
+		var req struct {
+			ChunkID   domain.ChunkID
+			Remaining []string
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		f.st.UpdatePendingDelete(req.ChunkID, req.Remaining)
+		return nil
+
 	default:
 		return fmt.Errorf("unknown command type: %s", env.Type)
 	}

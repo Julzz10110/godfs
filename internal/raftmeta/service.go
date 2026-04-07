@@ -249,6 +249,31 @@ func (s *Service) AddReplica(ctx context.Context, chunkID domain.ChunkID, nodeID
 	return err
 }
 
+func (s *Service) UpdatePendingDelete(ctx context.Context, chunkID domain.ChunkID, remaining []string) error {
+	b, err := encodeCommand(cmdUpdatePendingDelete, struct {
+		ChunkID   domain.ChunkID
+		Remaining []string
+	}{ChunkID: chunkID, Remaining: remaining})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
+func (s *Service) ClearPendingDeleteAddr(ctx context.Context, chunkID domain.ChunkID, addr string) error {
+	s.fsm.mu.RLock()
+	set := s.fsm.st.PendingDeletes[chunkID]
+	var remaining []string
+	for a := range set {
+		if a != addr {
+			remaining = append(remaining, a)
+		}
+	}
+	s.fsm.mu.RUnlock()
+	return s.UpdatePendingDelete(ctx, chunkID, remaining)
+}
+
 var ErrNotLeader = errors.New("not raft leader")
 
 // ParsePeers parses a comma-separated list of peers.

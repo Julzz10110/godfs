@@ -29,6 +29,10 @@ type State struct {
 
 	// NodeStatus tracks liveness and capacity telemetry reported by ChunkServers.
 	NodeStatus map[domain.NodeID]*nodeStatus
+
+	// PendingDeletes holds chunk IDs that should be deleted on specific peers (best-effort GC).
+	// Key is ChunkID, value is a set of peer gRPC addresses that still need DeleteChunk.
+	PendingDeletes map[domain.ChunkID]map[string]struct{}
 }
 
 type fileRec struct {
@@ -103,6 +107,7 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDead
 		NodeSet:       map[domain.NodeID]int{},
 		NodeUsedBytes: map[domain.NodeID]int64{},
 		NodeStatus:    map[domain.NodeID]*nodeStatus{},
+		PendingDeletes: map[domain.ChunkID]map[string]struct{}{},
 	}
 }
 
@@ -599,10 +604,32 @@ func (s *State) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 			addrs = append(addrs, r.Address)
 		}
 		infos = append(infos, domain.ChunkDeleteInfo{ChunkID: cid, Replicas: addrs})
+		if len(addrs) > 0 {
+			set := s.PendingDeletes[cid]
+			if set == nil {
+				set = map[string]struct{}{}
+				s.PendingDeletes[cid] = set
+			}
+			for _, a := range addrs {
+				set[a] = struct{}{}
+			}
+		}
 		s.releaseChunkFromReplicas(cr.Replicas)
 		delete(s.Chunks, cid)
 	}
 	return infos, nil
+}
+
+func (s *State) UpdatePendingDelete(chunkID domain.ChunkID, remaining []string) {
+	if len(remaining) == 0 {
+		delete(s.PendingDeletes, chunkID)
+		return
+	}
+	set := map[string]struct{}{}
+	for _, a := range remaining {
+		set[a] = struct{}{}
+	}
+	s.PendingDeletes[chunkID] = set
 }
 
 func (s *State) deleteDir(d string) ([]domain.ChunkDeleteInfo, error) {
