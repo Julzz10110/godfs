@@ -33,6 +33,9 @@ type State struct {
 	// PendingDeletes holds chunk IDs that should be deleted on specific peers (best-effort GC).
 	// Key is ChunkID, value is a set of peer gRPC addresses that still need DeleteChunk.
 	PendingDeletes map[domain.ChunkID]map[string]*pendingDelete
+
+	// RebalanceTasks stores per-chunk backoff/journal to avoid repeatedly healing the same chunk.
+	RebalanceTasks map[domain.ChunkID]*rebalanceTask
 }
 
 type fileRec struct {
@@ -63,6 +66,12 @@ type pendingDelete struct {
 	CreatedUnix     int64
 	Attempts        int
 	NextAttemptUnix int64
+}
+
+type rebalanceTask struct {
+	Attempts        int
+	NextAttemptUnix int64
+	LastError       string
 }
 
 func (s *State) AddReplica(chunkID domain.ChunkID, rep domain.ChunkReplica, at time.Time) error {
@@ -114,7 +123,34 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDead
 		NodeUsedBytes: map[domain.NodeID]int64{},
 		NodeStatus:    map[domain.NodeID]*nodeStatus{},
 		PendingDeletes: map[domain.ChunkID]map[string]*pendingDelete{},
+		RebalanceTasks: map[domain.ChunkID]*rebalanceTask{},
 	}
+}
+
+func (s *State) RebalanceDue(chunkID domain.ChunkID, at time.Time) bool {
+	t := s.RebalanceTasks[chunkID]
+	if t == nil {
+		return true
+	}
+	if t.NextAttemptUnix == 0 {
+		return true
+	}
+	return !time.Unix(t.NextAttemptUnix, 0).After(at)
+}
+
+func (s *State) MarkRebalanceAttempt(chunkID domain.ChunkID, attempts int, nextAttemptUnix int64, lastErr string) {
+	t := s.RebalanceTasks[chunkID]
+	if t == nil {
+		t = &rebalanceTask{}
+		s.RebalanceTasks[chunkID] = t
+	}
+	t.Attempts = attempts
+	t.NextAttemptUnix = nextAttemptUnix
+	t.LastError = lastErr
+}
+
+func (s *State) ClearRebalanceTask(chunkID domain.ChunkID) {
+	delete(s.RebalanceTasks, chunkID)
 }
 
 func normalizePath(p string) (string, error) {

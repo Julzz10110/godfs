@@ -174,6 +174,29 @@ func (f *FSM) Apply(l *raft.Log) any {
 		f.st.MarkPendingDeleteAttempt(req.ChunkID, req.Addr, req.Attempts, req.NextAttemptUnix)
 		return nil
 
+	case cmdMarkRebalanceAttempt:
+		var req struct {
+			ChunkID         domain.ChunkID
+			Attempts        int
+			NextAttemptUnix int64
+			LastError       string
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		f.st.MarkRebalanceAttempt(req.ChunkID, req.Attempts, req.NextAttemptUnix, req.LastError)
+		return nil
+
+	case cmdClearRebalanceTask:
+		var req struct {
+			ChunkID domain.ChunkID
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		f.st.ClearRebalanceTask(req.ChunkID)
+		return nil
+
 	default:
 		return fmt.Errorf("unknown command type: %s", env.Type)
 	}

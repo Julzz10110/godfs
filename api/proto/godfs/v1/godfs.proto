@@ -148,6 +148,7 @@ service ChunkService {
   rpc ReadChunk(ReadChunkRequest) returns (stream ReadChunkResponse);
   rpc DeleteChunk(DeleteChunkRequest) returns (DeleteChunkResponse);
   rpc ListChunks(ListChunksRequest) returns (ListChunksResponse);
+  rpc ChecksumChunk(ChecksumChunkRequest) returns (ChecksumChunkResponse);
   // Primary pushes full chunk bytes to a secondary (internal replication).
   rpc SyncChunk(stream SyncChunkRequest) returns (SyncChunkResponse);
   // Pull streams a chunk from another peer into local storage (recovery / admin).
@@ -199,6 +200,16 @@ message ChunkInfo {
 
 message ListChunksResponse {
   repeated ChunkInfo chunks = 1;
+}
+
+message ChecksumChunkRequest {
+  string chunk_id = 1;
+}
+
+message ChecksumChunkResponse {
+  bytes checksum_sha256 = 1;
+  int64 size_bytes = 2;
+  int64 modified_at_unix = 3;
 }
 
 message SyncChunkRequest {

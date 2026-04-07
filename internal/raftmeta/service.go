@@ -275,6 +275,38 @@ func (s *Service) MarkPendingDeleteAttempt(ctx context.Context, chunkID domain.C
 	return err
 }
 
+func (s *Service) MarkRebalanceAttempt(ctx context.Context, chunkID domain.ChunkID, attempts int, nextAttemptUnix int64, lastErr string) error {
+	b, err := encodeCommand(cmdMarkRebalanceAttempt, struct {
+		ChunkID         domain.ChunkID
+		Attempts        int
+		NextAttemptUnix int64
+		LastError       string
+	}{ChunkID: chunkID, Attempts: attempts, NextAttemptUnix: nextAttemptUnix, LastError: lastErr})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
+func (s *Service) ClearRebalanceTask(ctx context.Context, chunkID domain.ChunkID) error {
+	b, err := encodeCommand(cmdClearRebalanceTask, struct{ ChunkID domain.ChunkID }{ChunkID: chunkID})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
+func (s *Service) RebalanceAttempts(chunkID domain.ChunkID) int {
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	if t := s.fsm.st.RebalanceTasks[chunkID]; t != nil {
+		return t.Attempts
+	}
+	return 0
+}
+
 func (s *Service) SnapshotNodes() []domain.ChunkNode {
 	s.fsm.mu.RLock()
 	defer s.fsm.mu.RUnlock()

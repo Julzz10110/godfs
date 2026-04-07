@@ -108,6 +108,22 @@ func (f *FSStore) ReadAll(chunkID string) ([]byte, error) {
 	return os.ReadFile(f.path(chunkID))
 }
 
+func (f *FSStore) Checksum(chunkID string) (sum []byte, size int64, mod time.Time, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.path(chunkID)
+	fi, err := os.Stat(p)
+	if err != nil {
+		return nil, 0, time.Time{}, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, 0, time.Time{}, err
+	}
+	h := sha256.Sum256(b)
+	return h[:], fi.Size(), fi.ModTime().UTC(), nil
+}
+
 // WriteFull replaces the chunk file contents (used by SyncChunk on secondaries).
 func (f *FSStore) WriteFull(chunkID string, data []byte) error {
 	f.mu.Lock()

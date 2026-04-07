@@ -53,6 +53,30 @@ func main() {
 			rebalanceEvery = d
 		}
 	}
+	rebalanceMaxPerTick := 2
+	if v := os.Getenv("GODFS_REBALANCE_MAX_PER_TICK"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rebalanceMaxPerTick = n
+		}
+	}
+	rebalanceMaxAttempts := 10
+	if v := os.Getenv("GODFS_REBALANCE_MAX_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rebalanceMaxAttempts = n
+		}
+	}
+	rebalanceBackoffBase := 500 * time.Millisecond
+	if v := os.Getenv("GODFS_REBALANCE_BACKOFF_BASE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			rebalanceBackoffBase = d
+		}
+	}
+	rebalanceBackoffMax := 30 * time.Second
+	if v := os.Getenv("GODFS_REBALANCE_BACKOFF_MAX"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			rebalanceBackoffMax = d
+		}
+	}
 	gcEvery := 2 * time.Second
 	if v := os.Getenv("GODFS_GC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
@@ -163,13 +187,38 @@ func main() {
 					if !rstore.IsLeader() {
 						continue
 					}
-					act, err := rstore.PlanRebalance(time.Now().UTC())
-					if err != nil || act == nil {
-						continue
+					now := time.Now().UTC()
+					for i := 0; i < rebalanceMaxPerTick; i++ {
+						act, err := rstore.PlanRebalance(now)
+						if err != nil || act == nil {
+							break
+						}
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						err = rstore.ExecuteRebalance(ctx, act)
+						cancel()
+						if err == nil {
+							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+							_ = rstore.ClearRebalanceTask(uctx, act.ChunkID)
+							ucancel()
+							continue
+						}
+						// backoff per chunk
+						attempts := rstore.RebalanceAttempts(act.ChunkID)
+						if attempts >= rebalanceMaxAttempts {
+							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+							_ = rstore.ClearRebalanceTask(uctx, act.ChunkID)
+							ucancel()
+							continue
+						}
+						backoff := rebalanceBackoffBase * time.Duration(1<<min(attempts, 10))
+						if backoff > rebalanceBackoffMax {
+							backoff = rebalanceBackoffMax
+						}
+						next := now.Add(backoff).Unix()
+						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+						_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, err.Error())
+						ucancel()
 					}
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					_ = rstore.ExecuteRebalance(ctx, act)
-					cancel()
 				}
 			}()
 		}

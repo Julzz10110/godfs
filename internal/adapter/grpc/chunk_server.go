@@ -138,3 +138,14 @@ func (c *ChunkServer) ListChunks(_ context.Context, _ *godfsv1.ListChunksRequest
 	}
 	return &godfsv1.ListChunksResponse{Chunks: out}, nil
 }
+
+func (c *ChunkServer) ChecksumChunk(_ context.Context, req *godfsv1.ChecksumChunkRequest) (*godfsv1.ChecksumChunkResponse, error) {
+	if req.ChunkId == "" {
+		return nil, status.Error(codes.InvalidArgument, "chunk_id required")
+	}
+	sum, sz, mt, err := c.Store.Checksum(req.ChunkId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "checksum: %v", err)
+	}
+	return &godfsv1.ChecksumChunkResponse{ChecksumSha256: sum, SizeBytes: sz, ModifiedAtUnix: mt.Unix()}, nil
+}

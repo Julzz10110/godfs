@@ -501,12 +501,13 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ChunkService_WriteChunk_FullMethodName  = "/godfs.v1.ChunkService/WriteChunk"
-	ChunkService_ReadChunk_FullMethodName   = "/godfs.v1.ChunkService/ReadChunk"
-	ChunkService_DeleteChunk_FullMethodName = "/godfs.v1.ChunkService/DeleteChunk"
-	ChunkService_ListChunks_FullMethodName  = "/godfs.v1.ChunkService/ListChunks"
-	ChunkService_SyncChunk_FullMethodName   = "/godfs.v1.ChunkService/SyncChunk"
-	ChunkService_PullChunk_FullMethodName   = "/godfs.v1.ChunkService/PullChunk"
+	ChunkService_WriteChunk_FullMethodName    = "/godfs.v1.ChunkService/WriteChunk"
+	ChunkService_ReadChunk_FullMethodName     = "/godfs.v1.ChunkService/ReadChunk"
+	ChunkService_DeleteChunk_FullMethodName   = "/godfs.v1.ChunkService/DeleteChunk"
+	ChunkService_ListChunks_FullMethodName    = "/godfs.v1.ChunkService/ListChunks"
+	ChunkService_ChecksumChunk_FullMethodName = "/godfs.v1.ChunkService/ChecksumChunk"
+	ChunkService_SyncChunk_FullMethodName     = "/godfs.v1.ChunkService/SyncChunk"
+	ChunkService_PullChunk_FullMethodName     = "/godfs.v1.ChunkService/PullChunk"
 )
 
 // ChunkServiceClient is the client API for ChunkService service.
@@ -517,6 +518,7 @@ type ChunkServiceClient interface {
 	ReadChunk(ctx context.Context, in *ReadChunkRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadChunkResponse], error)
 	DeleteChunk(ctx context.Context, in *DeleteChunkRequest, opts ...grpc.CallOption) (*DeleteChunkResponse, error)
 	ListChunks(ctx context.Context, in *ListChunksRequest, opts ...grpc.CallOption) (*ListChunksResponse, error)
+	ChecksumChunk(ctx context.Context, in *ChecksumChunkRequest, opts ...grpc.CallOption) (*ChecksumChunkResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error)
 	// Pull streams a chunk from another peer into local storage (recovery / admin).
@@ -583,6 +585,16 @@ func (c *chunkServiceClient) ListChunks(ctx context.Context, in *ListChunksReque
 	return out, nil
 }
 
+func (c *chunkServiceClient) ChecksumChunk(ctx context.Context, in *ChecksumChunkRequest, opts ...grpc.CallOption) (*ChecksumChunkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChecksumChunkResponse)
+	err := c.cc.Invoke(ctx, ChunkService_ChecksumChunk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *chunkServiceClient) SyncChunk(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[SyncChunkRequest, SyncChunkResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ChunkService_ServiceDesc.Streams[2], ChunkService_SyncChunk_FullMethodName, cOpts...)
@@ -623,6 +635,7 @@ type ChunkServiceServer interface {
 	ReadChunk(*ReadChunkRequest, grpc.ServerStreamingServer[ReadChunkResponse]) error
 	DeleteChunk(context.Context, *DeleteChunkRequest) (*DeleteChunkResponse, error)
 	ListChunks(context.Context, *ListChunksRequest) (*ListChunksResponse, error)
+	ChecksumChunk(context.Context, *ChecksumChunkRequest) (*ChecksumChunkResponse, error)
 	// Primary pushes full chunk bytes to a secondary (internal replication).
 	SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error
 	// Pull streams a chunk from another peer into local storage (recovery / admin).
@@ -648,6 +661,9 @@ func (UnimplementedChunkServiceServer) DeleteChunk(context.Context, *DeleteChunk
 }
 func (UnimplementedChunkServiceServer) ListChunks(context.Context, *ListChunksRequest) (*ListChunksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChunks not implemented")
+}
+func (UnimplementedChunkServiceServer) ChecksumChunk(context.Context, *ChecksumChunkRequest) (*ChecksumChunkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChecksumChunk not implemented")
 }
 func (UnimplementedChunkServiceServer) SyncChunk(grpc.ClientStreamingServer[SyncChunkRequest, SyncChunkResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncChunk not implemented")
@@ -730,6 +746,24 @@ func _ChunkService_ListChunks_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChunkService_ChecksumChunk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChecksumChunkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChunkServiceServer).ChecksumChunk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChunkService_ChecksumChunk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChunkServiceServer).ChecksumChunk(ctx, req.(*ChecksumChunkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChunkService_SyncChunk_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(ChunkServiceServer).SyncChunk(&grpc.GenericServerStream[SyncChunkRequest, SyncChunkResponse]{ServerStream: stream})
 }
@@ -762,6 +796,10 @@ var ChunkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListChunks",
 			Handler:    _ChunkService_ListChunks_Handler,
+		},
+		{
+			MethodName: "ChecksumChunk",
+			Handler:    _ChunkService_ChecksumChunk_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
