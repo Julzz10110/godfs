@@ -150,15 +150,28 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return f.st.AddReplica(req.ChunkID, domain.ChunkReplica{NodeID: req.NodeID, Address: req.Address}, time.Unix(req.AtUnix, 0).UTC())
 
-	case cmdUpdatePendingDelete:
+	case cmdClearPendingDeleteAddr:
 		var req struct {
-			ChunkID   domain.ChunkID
-			Remaining []string
+			ChunkID domain.ChunkID
+			Addr    string
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
 		}
-		f.st.UpdatePendingDelete(req.ChunkID, req.Remaining)
+		f.st.ClearPendingDeleteAddr(req.ChunkID, req.Addr)
+		return nil
+
+	case cmdMarkPendingDeleteAttempt:
+		var req struct {
+			ChunkID         domain.ChunkID
+			Addr            string
+			Attempts        int
+			NextAttemptUnix int64
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		f.st.MarkPendingDeleteAttempt(req.ChunkID, req.Addr, req.Attempts, req.NextAttemptUnix)
 		return nil
 
 	default:

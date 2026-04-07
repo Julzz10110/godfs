@@ -249,11 +249,11 @@ func (s *Service) AddReplica(ctx context.Context, chunkID domain.ChunkID, nodeID
 	return err
 }
 
-func (s *Service) UpdatePendingDelete(ctx context.Context, chunkID domain.ChunkID, remaining []string) error {
-	b, err := encodeCommand(cmdUpdatePendingDelete, struct {
-		ChunkID   domain.ChunkID
-		Remaining []string
-	}{ChunkID: chunkID, Remaining: remaining})
+func (s *Service) ClearPendingDeleteAddr(ctx context.Context, chunkID domain.ChunkID, addr string) error {
+	b, err := encodeCommand(cmdClearPendingDeleteAddr, struct {
+		ChunkID domain.ChunkID
+		Addr    string
+	}{ChunkID: chunkID, Addr: addr})
 	if err != nil {
 		return err
 	}
@@ -261,17 +261,18 @@ func (s *Service) UpdatePendingDelete(ctx context.Context, chunkID domain.ChunkI
 	return err
 }
 
-func (s *Service) ClearPendingDeleteAddr(ctx context.Context, chunkID domain.ChunkID, addr string) error {
-	s.fsm.mu.RLock()
-	set := s.fsm.st.PendingDeletes[chunkID]
-	var remaining []string
-	for a := range set {
-		if a != addr {
-			remaining = append(remaining, a)
-		}
+func (s *Service) MarkPendingDeleteAttempt(ctx context.Context, chunkID domain.ChunkID, addr string, attempts int, nextAttemptUnix int64) error {
+	b, err := encodeCommand(cmdMarkPendingDeleteAttempt, struct {
+		ChunkID         domain.ChunkID
+		Addr            string
+		Attempts        int
+		NextAttemptUnix int64
+	}{ChunkID: chunkID, Addr: addr, Attempts: attempts, NextAttemptUnix: nextAttemptUnix})
+	if err != nil {
+		return err
 	}
-	s.fsm.mu.RUnlock()
-	return s.UpdatePendingDelete(ctx, chunkID, remaining)
+	_, err = s.apply(ctx, b)
+	return err
 }
 
 func (s *Service) SnapshotNodes() []domain.ChunkNode {

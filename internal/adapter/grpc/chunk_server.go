@@ -128,9 +128,13 @@ func (c *ChunkServer) DeleteChunk(_ context.Context, req *godfsv1.DeleteChunkReq
 }
 
 func (c *ChunkServer) ListChunks(_ context.Context, _ *godfsv1.ListChunksRequest) (*godfsv1.ListChunksResponse, error) {
-	ids, err := c.Store.ListChunkIDs()
+	m, err := c.Store.ListChunks()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list: %v", err)
 	}
-	return &godfsv1.ListChunksResponse{ChunkIds: ids}, nil
+	out := make([]*godfsv1.ChunkInfo, 0, len(m))
+	for id, mt := range m {
+		out = append(out, &godfsv1.ChunkInfo{ChunkId: id, ModifiedAtUnix: mt.Unix()})
+	}
+	return &godfsv1.ListChunksResponse{Chunks: out}, nil
 }

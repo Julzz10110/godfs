@@ -111,16 +111,22 @@ func (s *Service) ExecuteRebalance(ctx context.Context, act *RebalanceAction) er
 	return s.AddReplica(ctx, act.ChunkID, act.TargetNodeID, act.TargetAddr)
 }
 
-// PlanDeleteGC returns at most one pending delete action.
-func (s *Service) PlanDeleteGC() (chunkID domain.ChunkID, addr string, ok bool) {
+// PlanDeleteGC returns at most one due pending delete action.
+func (s *Service) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr string, attempts int, ok bool) {
 	s.fsm.mu.RLock()
 	defer s.fsm.mu.RUnlock()
 	for cid, addrs := range s.fsm.st.PendingDeletes {
-		for a := range addrs {
-			return cid, a, true
+		for a, pd := range addrs {
+			if pd == nil {
+				continue
+			}
+			if pd.NextAttemptUnix > 0 && time.Unix(pd.NextAttemptUnix, 0).After(at) {
+				continue
+			}
+			return cid, a, pd.Attempts, true
 		}
 	}
-	return "", "", false
+	return "", "", 0, false
 }
 
 

@@ -16,7 +16,8 @@ const (
 	cmdCommitChunk  commandType = "commit_chunk"
 	cmdHeartbeat    commandType = "heartbeat"
 	cmdAddReplica   commandType = "add_replica"
-	cmdUpdatePendingDelete commandType = "update_pending_delete"
+	cmdClearPendingDeleteAddr commandType = "clear_pending_delete_addr"
+	cmdMarkPendingDeleteAttempt commandType = "mark_pending_delete_attempt"
 )
 
 type commandEnvelope struct {

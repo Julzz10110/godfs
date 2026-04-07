@@ -116,7 +116,7 @@ func TestE2E_OrphanGC_RemovesUnknownChunks(t *testing.T) {
 	// Run orphan GC once.
 	gctx, gcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer gcancel()
-	if err := store.OrphanGCOnce(gctx); err != nil {
+	if err := store.OrphanGCOnce(gctx, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 

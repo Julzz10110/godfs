@@ -21,6 +21,13 @@ import (
 	"godfs/internal/usecase"
 )
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
 	grpcListen := ":9090"
 	if v := os.Getenv("GODFS_MASTER_GRPC_LISTEN"); v != "" {
@@ -52,10 +59,46 @@ func main() {
 			gcEvery = d
 		}
 	}
+	gcMaxPerTick := 4
+	if v := os.Getenv("GODFS_GC_MAX_PER_TICK"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			gcMaxPerTick = n
+		}
+	}
+	gcMaxAttempts := 20
+	if v := os.Getenv("GODFS_GC_MAX_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			gcMaxAttempts = n
+		}
+	}
+	gcBaseBackoff := 250 * time.Millisecond
+	if v := os.Getenv("GODFS_GC_BACKOFF_BASE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			gcBaseBackoff = d
+		}
+	}
+	gcMaxBackoff := 10 * time.Second
+	if v := os.Getenv("GODFS_GC_BACKOFF_MAX"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			gcMaxBackoff = d
+		}
+	}
 	orphanEvery := 30 * time.Second
 	if v := os.Getenv("GODFS_ORPHAN_GC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			orphanEvery = d
+		}
+	}
+	orphanMinAge := 2 * time.Minute
+	if v := os.Getenv("GODFS_ORPHAN_GC_MIN_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			orphanMinAge = d
+		}
+	}
+	orphanMaxPerNode := 50
+	if v := os.Getenv("GODFS_ORPHAN_GC_MAX_PER_NODE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			orphanMaxPerNode = n
 		}
 	}
 
@@ -139,28 +182,46 @@ func main() {
 					if !rstore.IsLeader() {
 						continue
 					}
-					cid, addr, ok := rstore.PlanDeleteGC()
-					if !ok {
-						continue
-					}
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					err := func() error {
-						cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-						if err != nil {
-							return err
+					now := time.Now().UTC()
+					for i := 0; i < gcMaxPerTick; i++ {
+						cid, addr, attempts, ok := rstore.PlanDeleteGC(now)
+						if !ok {
+							break
 						}
-						defer cc.Close()
-						cli := godfsv1.NewChunkServiceClient(cc)
-						_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
-						return err
-					}()
-					cancel()
-					if err != nil {
-						continue
+						if attempts >= gcMaxAttempts {
+							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+							_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
+							ucancel()
+							continue
+						}
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						err := func() error {
+							cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+							if err != nil {
+								return err
+							}
+							defer cc.Close()
+							cli := godfsv1.NewChunkServiceClient(cc)
+							_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
+							return err
+						}()
+						cancel()
+						if err == nil {
+							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+							_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
+							ucancel()
+							continue
+						}
+						// Backoff grows exponentially with attempts.
+						backoff := gcBaseBackoff * time.Duration(1<<min(attempts, 10))
+						if backoff > gcMaxBackoff {
+							backoff = gcMaxBackoff
+						}
+						next := now.Add(backoff).Unix()
+						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+						_ = rstore.MarkPendingDeleteAttempt(uctx, cid, addr, attempts+1, next)
+						ucancel()
 					}
-					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
-					ucancel()
 				}
 			}()
 		}
@@ -174,7 +235,7 @@ func main() {
 						continue
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					_ = rstore.OrphanGCOnce(ctx)
+					_ = rstore.OrphanGCOnce(ctx, orphanMinAge, orphanMaxPerNode)
 					cancel()
 				}
 			}()

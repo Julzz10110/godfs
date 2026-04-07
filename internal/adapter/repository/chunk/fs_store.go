@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FSStore stores chunk payloads as files under dataDir.
@@ -132,6 +133,32 @@ func (f *FSStore) ListChunkIDs() ([]string, error) {
 			continue
 		}
 		out = append(out, strings.TrimSuffix(name, ".chk"))
+	}
+	return out, nil
+}
+
+// ListChunks returns chunk IDs with file modification times.
+func (f *FSStore) ListChunks() (map[string]time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entries, err := os.ReadDir(f.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]time.Time{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".chk") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out[strings.TrimSuffix(name, ".chk")] = info.ModTime().UTC()
 	}
 	return out, nil
 }

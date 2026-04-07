@@ -132,7 +132,7 @@ func TestE2E_DeleteGC_RetriesUntilPeerDeleted(t *testing.T) {
 
 	gcDeadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(gcDeadline) {
-		cid, addr, ok := store.PlanDeleteGC()
+		cid, addr, _, ok := store.PlanDeleteGC(time.Now().UTC())
 		if ok {
 			t.Logf("gc: attempting delete chunk=%s on %s", cid, addr)
 			rctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

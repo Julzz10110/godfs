@@ -192,8 +192,13 @@ message DeleteChunkResponse {}
 
 message ListChunksRequest {}
 
+message ChunkInfo {
+  string chunk_id = 1;
+  int64 modified_at_unix = 2;
+}
+
 message ListChunksResponse {
-  repeated string chunk_ids = 1;
+  repeated ChunkInfo chunks = 1;
 }
 
 message SyncChunkRequest {

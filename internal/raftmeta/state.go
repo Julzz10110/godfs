@@ -32,7 +32,7 @@ type State struct {
 
 	// PendingDeletes holds chunk IDs that should be deleted on specific peers (best-effort GC).
 	// Key is ChunkID, value is a set of peer gRPC addresses that still need DeleteChunk.
-	PendingDeletes map[domain.ChunkID]map[string]struct{}
+	PendingDeletes map[domain.ChunkID]map[string]*pendingDelete
 }
 
 type fileRec struct {
@@ -57,6 +57,12 @@ type nodeStatus struct {
 	LastSeen time.Time
 	CapacityBytes int64
 	UsedBytes int64
+}
+
+type pendingDelete struct {
+	CreatedUnix     int64
+	Attempts        int
+	NextAttemptUnix int64
 }
 
 func (s *State) AddReplica(chunkID domain.ChunkID, rep domain.ChunkReplica, at time.Time) error {
@@ -107,7 +113,7 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDead
 		NodeSet:       map[domain.NodeID]int{},
 		NodeUsedBytes: map[domain.NodeID]int64{},
 		NodeStatus:    map[domain.NodeID]*nodeStatus{},
-		PendingDeletes: map[domain.ChunkID]map[string]struct{}{},
+		PendingDeletes: map[domain.ChunkID]map[string]*pendingDelete{},
 	}
 }
 
@@ -607,11 +613,13 @@ func (s *State) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 		if len(addrs) > 0 {
 			set := s.PendingDeletes[cid]
 			if set == nil {
-				set = map[string]struct{}{}
+				set = map[string]*pendingDelete{}
 				s.PendingDeletes[cid] = set
 			}
 			for _, a := range addrs {
-				set[a] = struct{}{}
+				if _, ok := set[a]; !ok {
+					set[a] = &pendingDelete{CreatedUnix: time.Now().UTC().Unix()}
+				}
 			}
 		}
 		s.releaseChunkFromReplicas(cr.Replicas)
@@ -620,16 +628,28 @@ func (s *State) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 	return infos, nil
 }
 
-func (s *State) UpdatePendingDelete(chunkID domain.ChunkID, remaining []string) {
-	if len(remaining) == 0 {
-		delete(s.PendingDeletes, chunkID)
+func (s *State) ClearPendingDeleteAddr(chunkID domain.ChunkID, addr string) {
+	set := s.PendingDeletes[chunkID]
+	if set == nil {
 		return
 	}
-	set := map[string]struct{}{}
-	for _, a := range remaining {
-		set[a] = struct{}{}
+	delete(set, addr)
+	if len(set) == 0 {
+		delete(s.PendingDeletes, chunkID)
 	}
-	s.PendingDeletes[chunkID] = set
+}
+
+func (s *State) MarkPendingDeleteAttempt(chunkID domain.ChunkID, addr string, attempts int, nextAttemptUnix int64) {
+	set := s.PendingDeletes[chunkID]
+	if set == nil {
+		return
+	}
+	p := set[addr]
+	if p == nil {
+		return
+	}
+	p.Attempts = attempts
+	p.NextAttemptUnix = nextAttemptUnix
 }
 
 func (s *State) deleteDir(d string) ([]domain.ChunkDeleteInfo, error) {
