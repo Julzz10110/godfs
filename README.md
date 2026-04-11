@@ -50,7 +50,7 @@ For **3× replication**, run three ChunkServer processes with distinct `GODFS_NO
 - **`internal/adapter/grpc`** — Master and Chunk gRPC services (from `api/proto`).
 - **`pkg/client`** — SDK: `Create`, `Mkdir`, `Read`, `Write`, `Delete`, `Rename`, `Stat`, `List`.
 
-Default chunk size: **64 MiB** (as in the specification).
+Default chunk size: **64 MiB**.
 
 ## Testing
 
