@@ -109,31 +109,76 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 	return "/", "", ""
 }
 
+func methodShort(full string) string {
+	if i := strings.LastIndexByte(full, '/'); i >= 0 {
+		return full[i+1:]
+	}
+	return full
+}
+
+func chunkPrincipal(clusterKey string) string {
+	if strings.TrimSpace(clusterKey) != "" {
+		return security.PrincipalCluster
+	}
+	return "anonymous"
+}
+
+func chunkUnaryChunkID(fullMethod string, req interface{}) string {
+	switch fullMethod {
+	case "/godfs.v1.ChunkService/DeleteChunk":
+		if r, ok := req.(*godfsv1.DeleteChunkRequest); ok {
+			return r.ChunkId
+		}
+	case "/godfs.v1.ChunkService/ChecksumChunk":
+		if r, ok := req.(*godfsv1.ChecksumChunkRequest); ok {
+			return r.ChunkId
+		}
+	}
+	return ""
+}
+
 // NewChunkUnaryInterceptor requires GODFS_CLUSTER_KEY to match Bearer when cluster auth is enabled.
-func NewChunkUnaryInterceptor(clusterKey string) grpc.UnaryServerInterceptor {
+// Optional audit lines for ChunkService when chunkAudit is true and audit is non-nil.
+func NewChunkUnaryInterceptor(clusterKey string, audit *security.AuditLogger, chunkAudit bool) grpc.UnaryServerInterceptor {
 	enabled := strings.TrimSpace(clusterKey) != ""
+	pr := chunkPrincipal(clusterKey)
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if !enabled {
-			return handler(ctx, req)
+		if enabled {
+			if err := checkClusterBearer(ctx, clusterKey); err != nil {
+				return nil, err
+			}
 		}
-		if err := checkClusterBearer(ctx, clusterKey); err != nil {
-			return nil, err
+		resp, err := handler(ctx, req)
+		if chunkAudit && audit != nil {
+			errMsg := ""
+			if err != nil {
+				errMsg = err.Error()
+			}
+			audit.LogChunk(pr, methodShort(info.FullMethod), chunkUnaryChunkID(info.FullMethod, req), false, err == nil, errMsg)
 		}
-		return handler(ctx, req)
+		return resp, err
 	}
 }
 
 // NewChunkStreamInterceptor is the streaming counterpart for ChunkService.
-func NewChunkStreamInterceptor(clusterKey string) grpc.StreamServerInterceptor {
+func NewChunkStreamInterceptor(clusterKey string, audit *security.AuditLogger, chunkAudit bool) grpc.StreamServerInterceptor {
 	enabled := strings.TrimSpace(clusterKey) != ""
+	pr := chunkPrincipal(clusterKey)
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if !enabled {
-			return handler(srv, ss)
+		if enabled {
+			if err := checkClusterBearer(ss.Context(), clusterKey); err != nil {
+				return err
+			}
 		}
-		if err := checkClusterBearer(ss.Context(), clusterKey); err != nil {
-			return err
+		err := handler(srv, ss)
+		if chunkAudit && audit != nil {
+			errMsg := ""
+			if err != nil {
+				errMsg = err.Error()
+			}
+			audit.LogChunk(pr, methodShort(info.FullMethod), "", true, err == nil, errMsg)
 		}
-		return handler(srv, ss)
+		return err
 	}
 }
 

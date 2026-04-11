@@ -108,9 +108,14 @@ func main() {
 		serverOpts = append(serverOpts, grpc.Creds(creds))
 	}
 	clusterKey := os.Getenv("GODFS_CLUSTER_KEY")
+	audit, err := security.NewAuditLoggerFromEnv()
+	if err != nil {
+		log.Fatalf("audit: %v", err)
+	}
+	chunkAudit := security.ChunkAuditEnabledFromEnv()
 	serverOpts = append(serverOpts,
-		grpc.ChainUnaryInterceptor(grpcsvc.NewChunkUnaryInterceptor(clusterKey)),
-		grpc.ChainStreamInterceptor(grpcsvc.NewChunkStreamInterceptor(clusterKey)),
+		grpc.ChainUnaryInterceptor(grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit)),
+		grpc.ChainStreamInterceptor(grpcsvc.NewChunkStreamInterceptor(clusterKey, audit, chunkAudit)),
 	)
 	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st})

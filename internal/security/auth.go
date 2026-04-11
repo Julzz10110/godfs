@@ -3,9 +3,11 @@ package security
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
+	"github.com/MicahParks/keyfunc/v3"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -16,19 +18,21 @@ const (
 	PrincipalCluster = "cluster"
 )
 
-// Auth holds API key map, cluster key, and optional JWT HMAC secret.
+// Auth holds API key map, cluster key, optional JWT HMAC secret, and optional JWKS-backed JWT (RS256/ES256).
 type Auth struct {
-	Enabled       bool
-	APIKeyToUser  map[string]string // secret -> principal
-	ClusterKey    string
+	Enabled        bool
+	APIKeyToUser   map[string]string // secret -> principal
+	ClusterKey     string
 	JWTHS256Secret []byte
+	JWTKeyfunc     keyfunc.Keyfunc // from GODFS_JWT_JWKS_URL; nil if unset
 }
 
-// LoadAuthFromEnv configures auth when any of GODFS_CLUSTER_KEY, GODFS_API_KEYS, GODFS_JWT_HMAC_SECRET is set.
+// LoadAuthFromEnv configures auth when any of GODFS_CLUSTER_KEY, GODFS_API_KEYS, GODFS_JWT_HMAC_SECRET, GODFS_JWT_JWKS_URL is set.
 func LoadAuthFromEnv() (*Auth, error) {
 	cluster := strings.TrimSpace(os.Getenv("GODFS_CLUSTER_KEY"))
 	apiKeysRaw := strings.TrimSpace(os.Getenv("GODFS_API_KEYS"))
 	jwtSecret := strings.TrimSpace(os.Getenv("GODFS_JWT_HMAC_SECRET"))
+	jwksURL := strings.TrimSpace(os.Getenv("GODFS_JWT_JWKS_URL"))
 
 	a := &Auth{
 		APIKeyToUser: map[string]string{},
@@ -62,7 +66,14 @@ func LoadAuthFromEnv() (*Auth, error) {
 	if jwtSecret != "" {
 		a.JWTHS256Secret = []byte(jwtSecret)
 	}
-	a.Enabled = cluster != "" || len(a.APIKeyToUser) > 0 || len(a.JWTHS256Secret) > 0
+	if jwksURL != "" {
+		kf, err := keyfunc.NewDefault([]string{jwksURL})
+		if err != nil {
+			return nil, fmt.Errorf("GODFS_JWT_JWKS_URL: %w", err)
+		}
+		a.JWTKeyfunc = kf
+	}
+	a.Enabled = cluster != "" || len(a.APIKeyToUser) > 0 || len(a.JWTHS256Secret) > 0 || a.JWTKeyfunc != nil
 	return a, nil
 }
 
@@ -97,25 +108,49 @@ func (a *Auth) PrincipalFromContext(ctx context.Context) (string, error) {
 	if p, ok := a.APIKeyToUser[tok]; ok {
 		return p, nil
 	}
-	if len(a.JWTHS256Secret) > 0 && strings.Count(tok, ".") == 2 {
-		p, err := parseJWT(tok, a.JWTHS256Secret)
-		if err != nil {
-			return "", status.Errorf(codes.Unauthenticated, "jwt: %v", err)
+	if strings.Count(tok, ".") == 2 && (len(a.JWTHS256Secret) > 0 || a.JWTKeyfunc != nil) {
+		var lastErr error
+		if len(a.JWTHS256Secret) > 0 {
+			p, err := parseJWTHS256(tok, a.JWTHS256Secret)
+			if err == nil && p != "" {
+				return p, nil
+			}
+			lastErr = err
 		}
-		if p != "" {
-			return p, nil
+		if a.JWTKeyfunc != nil {
+			p, err := parseJWTJWKS(tok, a.JWTKeyfunc)
+			if err == nil && p != "" {
+				return p, nil
+			}
+			lastErr = err
 		}
+		if lastErr != nil {
+			return "", status.Errorf(codes.Unauthenticated, "jwt: %v", lastErr)
+		}
+		return "", status.Error(codes.Unauthenticated, "jwt: invalid claims")
 	}
 	return "", status.Error(codes.Unauthenticated, "invalid credentials")
 }
 
-func parseJWT(token string, secret []byte) (string, error) {
+func parseJWTHS256(token string, secret []byte) (string, error) {
 	t, err := jwt.ParseWithClaims(token, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, jwt.ErrSignatureInvalid
 		}
 		return secret, nil
 	})
+	if err != nil {
+		return "", err
+	}
+	c, ok := t.Claims.(*jwt.RegisteredClaims)
+	if !ok || !t.Valid || c.Subject == "" {
+		return "", jwt.ErrTokenInvalidClaims
+	}
+	return c.Subject, nil
+}
+
+func parseJWTJWKS(token string, kf keyfunc.Keyfunc) (string, error) {
+	t, err := jwt.ParseWithClaims(token, &jwt.RegisteredClaims{}, kf.Keyfunc)
 	if err != nil {
 		return "", err
 	}
