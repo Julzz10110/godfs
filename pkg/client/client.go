@@ -25,6 +25,8 @@ type Client struct {
 
 	chunkSize int64
 	apiKey    string
+	// writeParallel limits concurrent chunk writes when >0 (default from GODFS_CLIENT_WRITE_PARALLELISM or 4).
+	writeParallel int
 
 	mu    sync.Mutex
 	chCon map[string]*grpc.ClientConn
@@ -151,83 +153,6 @@ func (c *Client) List(ctx context.Context, path string) ([]*godfsv1.DirEntry, er
 	return r.Entries, nil
 }
 
-// Write writes full data to path (file must exist).
-func (c *Client) Write(ctx context.Context, path string, data []byte) error {
-	var pos int64
-	remain := int64(len(data))
-	for remain > 0 {
-		cs := c.chunkSize
-		if cs <= 0 {
-			cs = defaultChunkSize
-		}
-		chunkOff := pos % cs
-		maxInChunk := cs - chunkOff
-		n := remain
-		if n > maxInChunk {
-			n = maxInChunk
-		}
-
-		pw, err := c.master.PrepareWrite(ctx, &godfsv1.PrepareWriteRequest{
-			Path:   path,
-			Offset: pos,
-			Length: n,
-		})
-		if err != nil {
-			return fmt.Errorf("prepare: %w", err)
-		}
-
-		cc, err := c.chunkConn(pw.PrimaryAddress)
-		if err != nil {
-			return err
-		}
-		ch := godfsv1.NewChunkServiceClient(cc)
-		ws, err := ch.WriteChunk(ctx)
-		if err != nil {
-			return err
-		}
-		if err := ws.Send(&godfsv1.WriteChunkRequest{
-			Frame: &godfsv1.WriteChunkRequest_Meta{
-				Meta: &godfsv1.WriteChunkMeta{
-					ChunkId:             pw.ChunkId,
-					OffsetInChunk:       pw.ChunkOffset,
-					LeaseId:             pw.LeaseId,
-					Version:             pw.Version,
-					SecondaryAddresses:  pw.SecondaryAddresses,
-				},
-			},
-		}); err != nil {
-			return err
-		}
-		slice := data[pos : pos+n]
-		if err := ws.Send(&godfsv1.WriteChunkRequest{
-			Frame: &godfsv1.WriteChunkRequest_Data{Data: slice},
-		}); err != nil {
-			return err
-		}
-		resp, err := ws.CloseAndRecv()
-		if err != nil {
-			return err
-		}
-
-		_, err = c.master.CommitChunk(ctx, &godfsv1.CommitChunkRequest{
-			Path:           path,
-			ChunkId:        pw.ChunkId,
-			ChunkIndex:     pw.ChunkIndex,
-			ChunkOffset:    pw.ChunkOffset,
-			Written:        n,
-			ChecksumSha256: resp.ChecksumSha256,
-			Version:        pw.Version,
-		})
-		if err != nil {
-			return fmt.Errorf("commit: %w", err)
-		}
-
-		pos += n
-		remain -= n
-	}
-	return nil
-}
-
 // Read reads entire file.
 func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 	st, err := c.Stat(ctx, path)
@@ -244,9 +169,14 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 	out := make([]byte, st.Size)
 	var off int64
 	for off < st.Size {
-		gr, err := c.master.GetChunkForRead(ctx, &godfsv1.GetChunkForReadRequest{
-			Path:   path,
-			Offset: off,
+		var gr *godfsv1.GetChunkForReadResponse
+		err := grpcRetry(ctx, 5, func() error {
+			var e error
+			gr, e = c.master.GetChunkForRead(ctx, &godfsv1.GetChunkForReadRequest{
+				Path:   path,
+				Offset: off,
+			})
+			return e
 		})
 		if err != nil {
 			return nil, err
@@ -270,10 +200,15 @@ func (c *Client) Read(ctx context.Context, path string) ([]byte, error) {
 				continue
 			}
 			ch := godfsv1.NewChunkServiceClient(cc)
-			rc, err := ch.ReadChunk(ctx, &godfsv1.ReadChunkRequest{
-				ChunkId:         gr.ChunkId,
-				OffsetInChunk:   gr.ChunkOffset,
-				Length:          gr.AvailableInChunk,
+			var rc godfsv1.ChunkService_ReadChunkClient
+			err = grpcRetry(ctx, 5, func() error {
+				var e error
+				rc, e = ch.ReadChunk(ctx, &godfsv1.ReadChunkRequest{
+					ChunkId:       gr.ChunkId,
+					OffsetInChunk: gr.ChunkOffset,
+					Length:        gr.AvailableInChunk,
+				})
+				return e
 			})
 			if err != nil {
 				readErr = err

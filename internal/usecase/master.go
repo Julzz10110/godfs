@@ -46,5 +46,11 @@ type MasterStore interface {
 	// Heartbeat records liveness and capacity telemetry for a chunk node.
 	// Implementations may persist it (e.g. via Raft) or keep it ephemeral.
 	Heartbeat(ctx context.Context, nodeID domain.NodeID, capacityBytes, usedBytes int64) error
+
+	// Snapshots (FR-10): consistent metadata manifests for backup tooling.
+	CreateSnapshot(ctx context.Context, label string) (snapshotID string, createdAtUnix int64, err error)
+	ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error)
+	GetSnapshot(ctx context.Context, snapshotID string) (*domain.BackupSnapshot, error)
+	DeleteSnapshot(ctx context.Context, snapshotID string) error
 }
 

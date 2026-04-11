@@ -105,6 +105,9 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 		if r, ok := req.(*godfsv1.GetChunkForReadRequest); ok {
 			return r.Path, "", ""
 		}
+	case "/godfs.v1.MasterService/CreateSnapshot", "/godfs.v1.MasterService/ListSnapshots",
+		"/godfs.v1.MasterService/GetSnapshot", "/godfs.v1.MasterService/DeleteSnapshot":
+		return "/", "", ""
 	}
 	return "/", "", ""
 }

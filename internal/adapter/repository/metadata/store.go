@@ -35,6 +35,8 @@ type Store struct {
 	chunks map[domain.ChunkID]*chunkRec
 
 	leaseDur time.Duration
+
+	snapshots map[string]*domain.BackupSnapshot
 }
 
 type fileRec struct {
@@ -74,6 +76,7 @@ func NewStore(chunkSize int64, replication int) *Store {
 		nodeSet:       map[domain.NodeID]int{},
 		nodeUsedBytes: map[domain.NodeID]int64{},
 		leaseDur:      time.Duration(config.DefaultLeaseSec) * time.Second,
+		snapshots:     map[string]*domain.BackupSnapshot{},
 	}
 }
 

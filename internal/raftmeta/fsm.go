@@ -197,6 +197,26 @@ func (f *FSM) Apply(l *raft.Log) any {
 		f.st.ClearRebalanceTask(req.ChunkID)
 		return nil
 
+	case cmdCreateSnapshot:
+		var req struct {
+			ID     string
+			Label  string
+			AtUnix int64
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		return f.st.CreateBackupSnapshot(req.ID, req.Label, time.Unix(req.AtUnix, 0).UTC())
+
+	case cmdDeleteSnapshot:
+		var req struct {
+			ID string
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		return f.st.DeleteBackupSnapshot(req.ID)
+
 	default:
 		return fmt.Errorf("unknown command type: %s", env.Type)
 	}
@@ -226,6 +246,9 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	var st State
 	if err := gob.NewDecoder(bytes.NewReader(w.State)).Decode(&st); err != nil {
 		return err
+	}
+	if st.Snapshots == nil {
+		st.Snapshots = map[string]*domain.BackupSnapshot{}
 	}
 	f.mu.Lock()
 	f.st = &st

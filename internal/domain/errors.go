@@ -14,4 +14,6 @@ var (
 	ErrChunkMismatch    = errors.New("chunk version mismatch")
 	ErrParentNotFound   = errors.New("parent directory not found")
 	ErrInsufficientChunkServers = errors.New("insufficient chunk servers for replication")
+	// ErrNotLeader means the request must be sent to the current Raft leader (metadata mutations).
+	ErrNotLeader = errors.New("not leader")
 )

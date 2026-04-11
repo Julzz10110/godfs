@@ -16,6 +16,11 @@ service MasterService {
   rpc CommitChunk(CommitChunkRequest) returns (CommitChunkResponse);
   rpc GetChunkForRead(GetChunkForReadRequest) returns (GetChunkForReadResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // Backup snapshots (FR-10): point-in-time metadata manifest (paths + chunk refs + replica hints).
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
 }
 
 message RegisterNodeRequest {
@@ -142,6 +147,68 @@ message HeartbeatRequest {
 message HeartbeatResponse {
   int64 server_time_unix = 1;
 }
+
+message CreateSnapshotRequest {
+  string label = 1;
+}
+
+message CreateSnapshotResponse {
+  string snapshot_id = 1;
+  int64 created_at_unix = 2;
+}
+
+message ListSnapshotsRequest {}
+
+message SnapshotListEntry {
+  string snapshot_id = 1;
+  string label = 2;
+  int64 created_at_unix = 3;
+  int32 file_count = 4;
+}
+
+message ListSnapshotsResponse {
+  repeated SnapshotListEntry snapshots = 1;
+}
+
+message GetSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message GetSnapshotResponse {
+  BackupManifest manifest = 1;
+}
+
+message BackupManifest {
+  string snapshot_id = 1;
+  string label = 2;
+  int64 created_at_unix = 3;
+  int64 chunk_size_bytes = 4;
+  int32 replication_factor = 5;
+  repeated BackupFileEntry files = 6;
+}
+
+message BackupFileEntry {
+  string path = 1;
+  int64 size = 2;
+  uint32 mode = 3;
+  int64 created_at_unix = 4;
+  int64 modified_at_unix = 5;
+  repeated BackupChunkRef chunks = 6;
+}
+
+message BackupChunkRef {
+  string chunk_id = 1;
+  int64 chunk_index = 2;
+  uint64 version = 3;
+  bytes checksum_sha256 = 4;
+  repeated ReplicaLocation replicas = 5;
+}
+
+message DeleteSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message DeleteSnapshotResponse {}
 
 service ChunkService {
   rpc WriteChunk(stream WriteChunkRequest) returns (WriteChunkResponse);

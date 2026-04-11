@@ -66,6 +66,8 @@ func mapErr(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrChunkMismatch):
 		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, domain.ErrNotLeader):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
 	}
@@ -266,4 +268,89 @@ func (m *MasterServer) Heartbeat(ctx context.Context, req *godfsv1.HeartbeatRequ
 		return nil, mapErr(err)
 	}
 	return &godfsv1.HeartbeatResponse{ServerTimeUnix: time.Now().UTC().Unix()}, nil
+}
+
+func (m *MasterServer) CreateSnapshot(ctx context.Context, req *godfsv1.CreateSnapshotRequest) (*godfsv1.CreateSnapshotResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	id, ts, err := m.Store.CreateSnapshot(ctx, req.GetLabel())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.CreateSnapshotResponse{SnapshotId: id, CreatedAtUnix: ts}, nil
+}
+
+func (m *MasterServer) ListSnapshots(ctx context.Context, _ *godfsv1.ListSnapshotsRequest) (*godfsv1.ListSnapshotsResponse, error) {
+	entries, err := m.Store.ListSnapshots(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*godfsv1.SnapshotListEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, &godfsv1.SnapshotListEntry{
+			SnapshotId:    e.ID,
+			Label:         e.Label,
+			CreatedAtUnix: e.CreatedAtUnix,
+			FileCount:     e.FileCount,
+		})
+	}
+	return &godfsv1.ListSnapshotsResponse{Snapshots: out}, nil
+}
+
+func (m *MasterServer) GetSnapshot(ctx context.Context, req *godfsv1.GetSnapshotRequest) (*godfsv1.GetSnapshotResponse, error) {
+	sn, err := m.Store.GetSnapshot(ctx, req.GetSnapshotId())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.GetSnapshotResponse{Manifest: backupSnapshotToProto(sn)}, nil
+}
+
+func (m *MasterServer) DeleteSnapshot(ctx context.Context, req *godfsv1.DeleteSnapshotRequest) (*godfsv1.DeleteSnapshotResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	if err := m.Store.DeleteSnapshot(ctx, req.GetSnapshotId()); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.DeleteSnapshotResponse{}, nil
+}
+
+func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
+	if m == nil {
+		return nil
+	}
+	files := make([]*godfsv1.BackupFileEntry, 0, len(m.Files))
+	for _, f := range m.Files {
+		chunks := make([]*godfsv1.BackupChunkRef, 0, len(f.Chunks))
+		for _, c := range f.Chunks {
+			reps := make([]*godfsv1.ReplicaLocation, len(c.Replicas))
+			for i, r := range c.Replicas {
+				reps[i] = &godfsv1.ReplicaLocation{NodeId: string(r.NodeID), GrpcAddress: r.Address}
+			}
+			chunks = append(chunks, &godfsv1.BackupChunkRef{
+				ChunkId:        string(c.ChunkID),
+				ChunkIndex:     c.ChunkIndex,
+				Version:        c.Version,
+				ChecksumSha256: append([]byte(nil), c.Checksum...),
+				Replicas:       reps,
+			})
+		}
+		files = append(files, &godfsv1.BackupFileEntry{
+			Path:           f.Path,
+			Size:           f.Size,
+			Mode:           f.Mode,
+			CreatedAtUnix:  f.CreatedAt.Unix(),
+			ModifiedAtUnix: f.ModifiedAt.Unix(),
+			Chunks:         chunks,
+		})
+	}
+	return &godfsv1.BackupManifest{
+		SnapshotId:        m.ID,
+		Label:             m.Label,
+		CreatedAtUnix:     m.CreatedAt.Unix(),
+		ChunkSizeBytes:    m.ChunkSize,
+		ReplicationFactor: int32(m.ReplicationFactor),
+		Files:             files,
+	}
 }

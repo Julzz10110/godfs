@@ -173,15 +173,15 @@ func main() {
 			}
 		}
 		node, err := raftmeta.StartNode(raftmeta.NodeConfig{
-			NodeID:     nodeID,
-			RaftListen: raftListen,
-			RaftDir:    raftDir,
-			ChunkSize:  chunkSize,
-			Replication: replication,
-			LeaseDur:   leaseDur,
+			NodeID:        nodeID,
+			RaftListen:    raftListen,
+			RaftDir:       raftDir,
+			ChunkSize:     chunkSize,
+			Replication:   replication,
+			LeaseDur:      leaseDur,
 			NodeDeadAfter: nodeDeadAfter,
-			Peers:      peers,
-			Bootstrap:  bootstrap,
+			Peers:         peers,
+			Bootstrap:     bootstrap,
 		})
 		if err != nil {
 			log.Fatalf("start raft: %v", err)
@@ -311,6 +311,7 @@ func main() {
 
 	tlsCfg := security.LoadTLSConfigFromEnv()
 	var serverOpts []grpc.ServerOption
+	serverOpts = append(serverOpts, config.GRPCServerOptions()...)
 	serverOpts = observability.PrependOTelStatsHandler(serverOpts)
 	if tlsCfg.Enabled {
 		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {

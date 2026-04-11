@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -12,6 +13,7 @@ import (
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/config"
 	"godfs/internal/observability"
 	"godfs/internal/security"
 )
@@ -52,6 +54,26 @@ func main() {
 	st, err := chstor.NewFSStore(dataDir)
 	if err != nil {
 		log.Fatalf("storage: %v", err)
+	}
+
+	var readCache *chstor.ReadRangeCache
+	if v := os.Getenv("GODFS_CHUNK_READ_CACHE_ENTRIES"); v != "" {
+		entries, err := strconv.Atoi(v)
+		if err == nil && entries > 0 {
+			maxB := int64(8 * 1024 * 1024)
+			if s := os.Getenv("GODFS_CHUNK_READ_CACHE_MAX_BYTES"); s != "" {
+				if x, err := strconv.ParseInt(s, 10, 64); err == nil && x > 0 {
+					maxB = x
+				}
+			}
+			readCache, err = chstor.NewReadRangeCache(entries, maxB)
+			if err != nil {
+				log.Fatalf("read cache: %v", err)
+			}
+			if readCache != nil {
+				log.Printf("chunk read cache: entries=%d max_entry_bytes=%d", entries, maxB)
+			}
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -108,6 +130,7 @@ func main() {
 
 	tlsCfg := security.LoadTLSConfigFromEnv()
 	var serverOpts []grpc.ServerOption
+	serverOpts = append(serverOpts, config.GRPCServerOptions()...)
 	serverOpts = observability.PrependOTelStatsHandler(serverOpts)
 	if tlsCfg.Enabled {
 		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
@@ -136,7 +159,7 @@ func main() {
 		),
 	)
 	srv := grpc.NewServer(serverOpts...)
-	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st})
+	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st, ReadCache: readCache})
 	observability.RegisterGRPCPrometheus(srv)
 
 	log.Printf("chunk server listening on %s", listen)

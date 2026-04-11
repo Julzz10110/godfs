@@ -36,6 +36,9 @@ type State struct {
 
 	// RebalanceTasks stores per-chunk backoff/journal to avoid repeatedly healing the same chunk.
 	RebalanceTasks map[domain.ChunkID]*rebalanceTask
+
+	// Snapshots holds point-in-time backup manifests (FR-10), keyed by snapshot id.
+	Snapshots map[string]*domain.BackupSnapshot
 }
 
 type fileRec struct {
@@ -124,6 +127,7 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDead
 		NodeStatus:    map[domain.NodeID]*nodeStatus{},
 		PendingDeletes: map[domain.ChunkID]map[string]*pendingDelete{},
 		RebalanceTasks: map[domain.ChunkID]*rebalanceTask{},
+		Snapshots:      map[string]*domain.BackupSnapshot{},
 	}
 }
 

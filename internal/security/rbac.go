@@ -118,8 +118,11 @@ func PermFromMethod(fullMethod string) Perm {
 	case "/godfs.v1.MasterService/Rename":
 		return PermWrite // two paths checked separately
 	case "/godfs.v1.MasterService/Stat", "/godfs.v1.MasterService/ListDir",
-		"/godfs.v1.MasterService/GetChunkForRead":
+		"/godfs.v1.MasterService/GetChunkForRead",
+		"/godfs.v1.MasterService/ListSnapshots", "/godfs.v1.MasterService/GetSnapshot":
 		return PermRead
+	case "/godfs.v1.MasterService/CreateSnapshot", "/godfs.v1.MasterService/DeleteSnapshot":
+		return PermAdmin
 	default:
 		return PermAdmin
 	}

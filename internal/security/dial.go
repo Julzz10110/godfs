@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
+	"godfs/internal/config"
 	"godfs/internal/observability"
 )
 
@@ -42,6 +43,7 @@ func ClientDialOptions() ([]grpc.DialOption, error) {
 		)
 	}
 	opts = append(opts, observability.GRPCClientDialOptions()...)
+	opts = append(opts, config.GRPCDialOptions()...)
 	return opts, nil
 }
 
@@ -77,5 +79,6 @@ func UserClientDialOptions(apiKey string) ([]grpc.DialOption, error) {
 		)
 	}
 	opts = append(opts, observability.GRPCClientDialOptions()...)
+	opts = append(opts, config.GRPCDialOptions()...)
 	return opts, nil
 }

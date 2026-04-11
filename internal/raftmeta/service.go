@@ -2,7 +2,6 @@ package raftmeta
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -323,7 +322,55 @@ func (s *Service) SnapshotChunkIDs() map[domain.ChunkID]struct{} {
 	return out
 }
 
-var ErrNotLeader = errors.New("not raft leader")
+// CreateSnapshot applies a new backup manifest on the leader.
+func (s *Service) CreateSnapshot(ctx context.Context, label string) (string, int64, error) {
+	if s.raft.State() != raft.Leader {
+		return "", 0, domain.ErrNotLeader
+	}
+	id := uuid.New().String()
+	at := time.Now().UTC()
+	b, err := encodeCommand(cmdCreateSnapshot, struct {
+		ID     string
+		Label  string
+		AtUnix int64
+	}{ID: id, Label: label, AtUnix: at.Unix()})
+	if err != nil {
+		return "", 0, err
+	}
+	if _, err := s.apply(ctx, b); err != nil {
+		return "", 0, err
+	}
+	return id, at.Unix(), nil
+}
+
+// ListSnapshots lists recorded manifests (follower reads local FSM).
+func (s *Service) ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error) {
+	_ = ctx
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	return s.fsm.st.ListBackupSnapshots(), nil
+}
+
+// GetSnapshot returns a manifest copy.
+func (s *Service) GetSnapshot(ctx context.Context, id string) (*domain.BackupSnapshot, error) {
+	_ = ctx
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	return s.fsm.st.GetBackupSnapshot(id)
+}
+
+// DeleteSnapshot removes a manifest.
+func (s *Service) DeleteSnapshot(ctx context.Context, id string) error {
+	if s.raft.State() != raft.Leader {
+		return domain.ErrNotLeader
+	}
+	b, err := encodeCommand(cmdDeleteSnapshot, struct{ ID string }{ID: id})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
 
 // ParsePeers parses a comma-separated list of peers.
 // Supported formats:

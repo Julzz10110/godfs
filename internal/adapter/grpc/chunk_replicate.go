@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"os"
+	"strconv"
 
 	"google.golang.org/grpc"
 
@@ -9,7 +11,18 @@ import (
 	"godfs/internal/security"
 )
 
-const syncChunkPart = 256 * 1024
+func syncChunkPartBytes() int {
+	const def = 256 * 1024
+	v := os.Getenv("GODFS_SYNC_CHUNK_PART_BYTES")
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 4096 {
+		return def
+	}
+	return n
+}
 
 // ReplicateFullChunk pushes full chunk bytes from primary to a secondary via SyncChunk.
 func ReplicateFullChunk(ctx context.Context, targetAddr, chunkID string, data []byte) error {
@@ -35,8 +48,9 @@ func ReplicateFullChunk(ctx context.Context, targetAddr, chunkID string, data []
 	}); err != nil {
 		return err
 	}
-	for i := 0; i < len(data); i += syncChunkPart {
-		end := i + syncChunkPart
+	part := syncChunkPartBytes()
+	for i := 0; i < len(data); i += part {
+		end := i + part
 		if end > len(data) {
 			end = len(data)
 		}

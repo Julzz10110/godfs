@@ -20,6 +20,8 @@ const (
 	cmdMarkPendingDeleteAttempt commandType = "mark_pending_delete_attempt"
 	cmdMarkRebalanceAttempt commandType = "mark_rebalance_attempt"
 	cmdClearRebalanceTask commandType = "clear_rebalance_task"
+	cmdCreateSnapshot     commandType = "create_snapshot"
+	cmdDeleteSnapshot     commandType = "delete_snapshot"
 )
 
 type commandEnvelope struct {

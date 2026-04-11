@@ -13,6 +13,7 @@ import (
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
 	"godfs/internal/adapter/repository/metadata"
+	"godfs/internal/config"
 )
 
 // Cluster holds running Master + ChunkServers for e2e tests.
@@ -25,7 +26,7 @@ type Cluster struct {
 }
 
 // StartMaster starts Master on 127.0.0.1:0 with given chunk size and replication factor.
-func StartMaster(t *testing.T, chunkSize int64, replication int) (*metadata.Store, *Cluster) {
+func StartMaster(t testing.TB, chunkSize int64, replication int) (*metadata.Store, *Cluster) {
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -33,7 +34,7 @@ func StartMaster(t *testing.T, chunkSize int64, replication int) (*metadata.Stor
 		t.Fatalf("listen master: %v", err)
 	}
 	store := metadata.NewStore(chunkSize, replication)
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(config.GRPCServerOptions()...)
 	godfsv1.RegisterMasterServiceServer(srv, &grpcsvc.MasterServer{Store: store})
 
 	go func() {
@@ -52,7 +53,7 @@ func StartMaster(t *testing.T, chunkSize int64, replication int) (*metadata.Stor
 }
 
 // AddChunkServer starts a ChunkServer on 127.0.0.1:0 and registers it with Master.
-func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
+func (c *Cluster) AddChunkServer(t testing.TB, nodeID, dataDir string) string {
 	t.Helper()
 
 	st, err := chstor.NewFSStore(dataDir)
@@ -65,7 +66,7 @@ func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
 	}
 	advertise := ln.Addr().String()
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(config.GRPCServerOptions()...)
 	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st})
 
 	go func() {
@@ -77,7 +78,9 @@ func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(c.MasterAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	dopts = append(dopts, config.GRPCDialOptions()...)
+	conn, err := grpc.NewClient(c.MasterAddr, dopts...)
 	if err != nil {
 		t.Fatalf("dial master: %v", err)
 	}
@@ -104,7 +107,7 @@ func (c *Cluster) AddChunkServer(t *testing.T, nodeID, dataDir string) string {
 }
 
 // StopChunkServer stops one chunk gRPC server (failure simulation). Index matches registration order in AddChunkServer.
-func (c *Cluster) StopChunkServer(t *testing.T, index int) {
+func (c *Cluster) StopChunkServer(t testing.TB, index int) {
 	t.Helper()
 	if c == nil || index < 0 || index >= len(c.chunkSrvs) {
 		t.Fatalf("invalid chunk index %d (servers=%d)", index, len(c.chunkSrvs))

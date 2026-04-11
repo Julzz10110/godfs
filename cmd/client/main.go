@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/pkg/client"
@@ -99,6 +100,65 @@ func main() {
 			break
 		}
 		fmt.Printf("is_dir=%v size=%d mode=%o mod=%s\n", st.IsDir, st.Size, st.Mode, st.ModTime)
+	case "snapshot":
+		if len(args) < 2 {
+			log.Fatal("snapshot <create|list|get|delete> ...")
+		}
+		switch args[1] {
+		case "create":
+			if len(args) != 3 {
+				log.Fatal("snapshot create <label>")
+			}
+			var id string
+			var ts int64
+			id, ts, err = c.CreateSnapshot(ctx, args[2])
+			if err != nil {
+				break
+			}
+			fmt.Printf("snapshot_id=%s created_at_unix=%d\n", id, ts)
+		case "list":
+			var entries []*godfsv1.SnapshotListEntry
+			entries, err = c.ListSnapshots(ctx)
+			if err != nil {
+				break
+			}
+			for _, e := range entries {
+				fmt.Printf("%s\t%s\t%d\tfiles=%d\n", e.GetSnapshotId(), e.GetLabel(), e.GetCreatedAtUnix(), e.GetFileCount())
+			}
+		case "get":
+			if len(args) < 3 || len(args) > 4 {
+				log.Fatal("snapshot get <snapshot_id> [manifest.json]")
+			}
+			var man *godfsv1.BackupManifest
+			man, err = c.GetSnapshot(ctx, args[2])
+			if err != nil {
+				break
+			}
+			if len(args) == 4 {
+				var b []byte
+				b, err = protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(man)
+				if err != nil {
+					break
+				}
+				err = os.WriteFile(args[3], b, 0o644)
+				if err != nil {
+					break
+				}
+			} else {
+				fmt.Printf("snapshot_id=%s label=%s created_at_unix=%d files=%d chunk_size=%d replication=%d\n",
+					man.GetSnapshotId(), man.GetLabel(), man.GetCreatedAtUnix(), len(man.GetFiles()), man.GetChunkSizeBytes(), man.GetReplicationFactor())
+				for _, f := range man.GetFiles() {
+					fmt.Printf("  %s size=%d chunks=%d\n", f.GetPath(), f.GetSize(), len(f.GetChunks()))
+				}
+			}
+		case "delete":
+			if len(args) != 3 {
+				log.Fatal("snapshot delete <snapshot_id>")
+			}
+			err = c.DeleteSnapshot(ctx, args[2])
+		default:
+			log.Fatalf("unknown snapshot subcommand %q", args[1])
+		}
 	default:
 		log.Fatalf("unknown command %q", args[0])
 	}

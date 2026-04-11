@@ -3,7 +3,10 @@ package grpc
 import (
 	"context"
 	"io"
+	"os"
+	"strconv"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -11,10 +14,24 @@ import (
 	chstor "godfs/internal/adapter/repository/chunk"
 )
 
+func readChunkFrameBytes() int {
+	const def = 32 * 1024
+	v := os.Getenv("GODFS_CHUNK_READ_FRAME_BYTES")
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1024 {
+		return def
+	}
+	return n
+}
+
 // ChunkServer implements godfsv1.ChunkServiceServer.
 type ChunkServer struct {
 	godfsv1.UnimplementedChunkServiceServer
-	Store *chstor.FSStore
+	Store     *chstor.FSStore
+	ReadCache *chstor.ReadRangeCache // optional hot read cache
 }
 
 func (c *ChunkServer) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) error {
@@ -51,10 +68,15 @@ func (c *ChunkServer) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) e
 		if rerr != nil {
 			return status.Errorf(codes.Internal, "read for replicate: %v", rerr)
 		}
+		g, gctx := errgroup.WithContext(ctx)
 		for _, peer := range meta.SecondaryAddresses {
-			if err := ReplicateFullChunk(ctx, peer, meta.ChunkId, full); err != nil {
-				return status.Errorf(codes.Internal, "replicate to %s: %v", peer, err)
-			}
+			peer := peer
+			g.Go(func() error {
+				return ReplicateFullChunk(gctx, peer, meta.ChunkId, full)
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return status.Errorf(codes.Internal, "replicate: %v", err)
 		}
 	}
 
@@ -92,9 +114,21 @@ func (c *ChunkServer) SyncChunk(stream godfsv1.ChunkService_SyncChunkServer) err
 }
 
 func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.ChunkService_ReadChunkServer) error {
-	buf := make([]byte, 32*1024)
+	if c.ReadCache != nil && req.Length > 0 {
+		if data, ok := c.ReadCache.Get(req.ChunkId, req.OffsetInChunk, req.Length); ok {
+			return sendReadChunks(stream, data)
+		}
+	}
+
+	buf := make([]byte, readChunkFrameBytes())
 	remain := req.Length
 	off := req.OffsetInChunk
+	var acc []byte
+	cacheFull := c.ReadCache != nil && req.Length > 0 && req.Length <= c.ReadCache.MaxEntryBytes()
+
+	if cacheFull {
+		acc = make([]byte, 0, req.Length)
+	}
 
 	for remain > 0 {
 		n := int64(len(buf))
@@ -108,6 +142,9 @@ func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.Ch
 		if err := stream.Send(&godfsv1.ReadChunkResponse{Data: buf[:rn]}); err != nil {
 			return err
 		}
+		if cacheFull {
+			acc = append(acc, buf[:rn]...)
+		}
 		if err == io.EOF {
 			break
 		}
@@ -116,6 +153,24 @@ func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.Ch
 		}
 		off += int64(rn)
 		remain -= int64(rn)
+	}
+	if cacheFull && int64(len(acc)) == req.Length {
+		c.ReadCache.Add(req.ChunkId, req.OffsetInChunk, req.Length, acc)
+	}
+	return nil
+}
+
+func sendReadChunks(stream godfsv1.ChunkService_ReadChunkServer, data []byte) error {
+	chunk := readChunkFrameBytes()
+	for len(data) > 0 {
+		n := chunk
+		if n > len(data) {
+			n = len(data)
+		}
+		if err := stream.Send(&godfsv1.ReadChunkResponse{Data: data[:n]}); err != nil {
+			return err
+		}
+		data = data[n:]
 	}
 	return nil
 }
