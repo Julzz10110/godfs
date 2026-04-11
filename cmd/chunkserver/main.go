@@ -12,10 +12,21 @@ import (
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/observability"
 	"godfs/internal/security"
 )
 
 func main() {
+	ctx := context.Background()
+	shutdownOTel, err := observability.InitOTel(ctx, "godfs-chunkserver")
+	if err != nil {
+		log.Fatalf("otel: %v", err)
+	}
+	defer func() { _ = shutdownOTel(context.Background()) }()
+
+	observability.EnableGRPCPrometheusHistograms()
+	observability.StartMetricsHTTPServer(os.Getenv("GODFS_METRICS_LISTEN"))
+
 	listen := ":8000"
 	if v := os.Getenv("GODFS_CHUNK_LISTEN"); v != "" {
 		listen = v
@@ -97,6 +108,7 @@ func main() {
 
 	tlsCfg := security.LoadTLSConfigFromEnv()
 	var serverOpts []grpc.ServerOption
+	serverOpts = observability.PrependOTelStatsHandler(serverOpts)
 	if tlsCfg.Enabled {
 		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
 			log.Fatal("GODFS_TLS_ENABLED requires GODFS_TLS_CERT_FILE and GODFS_TLS_KEY_FILE")
@@ -114,11 +126,18 @@ func main() {
 	}
 	chunkAudit := security.ChunkAuditEnabledFromEnv()
 	serverOpts = append(serverOpts,
-		grpc.ChainUnaryInterceptor(grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit)),
-		grpc.ChainStreamInterceptor(grpcsvc.NewChunkStreamInterceptor(clusterKey, audit, chunkAudit)),
+		grpc.ChainUnaryInterceptor(
+			observability.GRPCUnaryPrometheusInterceptor(),
+			grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit),
+		),
+		grpc.ChainStreamInterceptor(
+			observability.GRPCStreamPrometheusInterceptor(),
+			grpcsvc.NewChunkStreamInterceptor(clusterKey, audit, chunkAudit),
+		),
 	)
 	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st})
+	observability.RegisterGRPCPrometheus(srv)
 
 	log.Printf("chunk server listening on %s", listen)
 	if err := srv.Serve(ln); err != nil {

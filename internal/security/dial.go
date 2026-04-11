@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"godfs/internal/observability"
 )
 
 // ClientTransport returns transport credentials: TLS when GODFS_TLS_ENABLED, else insecure.
@@ -39,6 +41,7 @@ func ClientDialOptions() ([]grpc.DialOption, error) {
 			grpc.WithStreamInterceptor(bearerStreamInterceptor(key)),
 		)
 	}
+	opts = append(opts, observability.GRPCClientDialOptions()...)
 	return opts, nil
 }
 
@@ -73,5 +76,6 @@ func UserClientDialOptions(apiKey string) ([]grpc.DialOption, error) {
 			grpc.WithStreamInterceptor(bearerStreamInterceptor(tok)),
 		)
 	}
+	opts = append(opts, observability.GRPCClientDialOptions()...)
 	return opts, nil
 }

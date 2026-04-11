@@ -16,6 +16,7 @@ import (
 	grpcsvc "godfs/internal/adapter/grpc"
 	"godfs/internal/adapter/repository/metadata"
 	"godfs/internal/config"
+	"godfs/internal/observability"
 	"godfs/internal/raftmeta"
 	"godfs/internal/security"
 	"godfs/internal/usecase"
@@ -29,6 +30,16 @@ func min(a, b int) int {
 }
 
 func main() {
+	ctx := context.Background()
+	shutdownOTel, err := observability.InitOTel(ctx, "godfs-master")
+	if err != nil {
+		log.Fatalf("otel: %v", err)
+	}
+	defer func() { _ = shutdownOTel(context.Background()) }()
+
+	observability.EnableGRPCPrometheusHistograms()
+	observability.StartMetricsHTTPServer(os.Getenv("GODFS_METRICS_LISTEN"))
+
 	grpcListen := ":9090"
 	if v := os.Getenv("GODFS_MASTER_GRPC_LISTEN"); v != "" {
 		grpcListen = v
@@ -300,6 +311,7 @@ func main() {
 
 	tlsCfg := security.LoadTLSConfigFromEnv()
 	var serverOpts []grpc.ServerOption
+	serverOpts = observability.PrependOTelStatsHandler(serverOpts)
 	if tlsCfg.Enabled {
 		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
 			log.Fatal("GODFS_TLS_ENABLED requires GODFS_TLS_CERT_FILE and GODFS_TLS_KEY_FILE")
@@ -323,12 +335,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("audit: %v", err)
 	}
+	var unary []grpc.UnaryServerInterceptor
+	unary = append(unary, observability.GRPCUnaryPrometheusInterceptor())
 	if auth.Enabled {
-		serverOpts = append(serverOpts, grpc.ChainUnaryInterceptor(grpcsvc.NewMasterUnaryInterceptor(auth, rbac, audit)))
+		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(auth, rbac, audit))
 	}
+	serverOpts = append(serverOpts,
+		grpc.ChainUnaryInterceptor(unary...),
+		grpc.ChainStreamInterceptor(observability.GRPCStreamPrometheusInterceptor()),
+	)
 
 	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterMasterServiceServer(srv, &grpcsvc.MasterServer{Store: store})
+	observability.RegisterGRPCPrometheus(srv)
 
 	if err := srv.Serve(ln); err != nil {
 		log.Fatalf("serve: %v", err)

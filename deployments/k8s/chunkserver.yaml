@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: godfs-chunk
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs-chunk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-chunk
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: godfs-chunk
+    spec:
+      containers:
+        - name: chunk
+          image: godfs-chunkserver:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: GODFS_MASTER
+              value: "godfs-master.godfs.svc.cluster.local:9090"
+            - name: GODFS_CHUNK_LISTEN
+              value: "0.0.0.0:8000"
+            - name: GODFS_ADVERTISE_ADDR
+              value: "godfs-chunk.godfs.svc.cluster.local:8000"
+            - name: GODFS_METRICS_LISTEN
+              value: "0.0.0.0:9091"
+            - name: GODFS_CHUNK_DATA
+              value: "/var/lib/godfs/data"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/godfs
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: godfs-chunk
+  namespace: godfs
+spec:
+  selector:
+    app.kubernetes.io/name: godfs-chunk
+  ports:
+    - name: grpc
+      port: 8000
+      targetPort: grpc
+    - name: metrics
+      port: 9091
+      targetPort: metrics
