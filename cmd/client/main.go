@@ -15,6 +15,7 @@ import (
 
 func main() {
 	master := pflag.StringP("master", "m", "127.0.0.1:9090", "master gRPC address")
+	apiKey := pflag.String("api-key", "", "Bearer token / API key (overrides GODFS_CLIENT_API_KEY)")
 	pflag.Parse()
 
 	args := pflag.Args()
@@ -26,7 +27,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	c, err := client.New(*master)
+	c, err := client.NewWithOptions(*master, 0, *apiKey)
 	if err != nil {
 		log.Fatal(err)
 	}

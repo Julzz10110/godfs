@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/internal/domain"
+	"godfs/internal/security"
 )
 
 type RebalanceAction struct {
@@ -69,7 +69,11 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 
 	// Helper: compute checksum from a replica.
 	repChecksum := func(addr string, chunkID domain.ChunkID) ([]byte, error) {
-		cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dopts, err := security.ClientDialOptions()
+		if err != nil {
+			return nil, err
+		}
+		cc, err := grpc.NewClient(addr, dopts...)
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +175,11 @@ func (s *Service) ExecuteRebalance(ctx context.Context, act *RebalanceAction) er
 		return nil
 	}
 	// Ask target to PullChunk from source.
-	conn, err := grpc.NewClient(act.TargetAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts, err := security.ClientDialOptions()
+	if err != nil {
+		return err
+	}
+	conn, err := grpc.NewClient(act.TargetAddr, dopts...)
 	if err != nil {
 		return err
 	}

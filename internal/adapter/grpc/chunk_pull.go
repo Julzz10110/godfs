@@ -5,10 +5,10 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/security"
 )
 
 const pullReadMax = 64 * 1024 * 1024
@@ -20,7 +20,11 @@ func (c *ChunkServer) PullChunk(req *godfsv1.PullChunkRequest, stream godfsv1.Ch
 	}
 	ctx := stream.Context()
 
-	conn, err := grpc.NewClient(req.SourcePeerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts, err := security.ClientDialOptions()
+	if err != nil {
+		return status.Errorf(codes.Internal, "dial options: %v", err)
+	}
+	conn, err := grpc.NewClient(req.SourcePeerAddress, dopts...)
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "dial source: %v", err)
 	}

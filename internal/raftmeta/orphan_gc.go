@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/internal/domain"
+	"godfs/internal/security"
 )
 
 // OrphanGCOnce removes chunks present on chunkservers but absent in metadata.
@@ -30,7 +30,11 @@ func (s *Service) OrphanGCOnce(ctx context.Context, minAge time.Duration, maxDel
 		if !alive {
 			continue
 		}
-		cc, err := grpc.NewClient(n.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dopts, err := security.ClientDialOptions()
+		if err != nil {
+			continue
+		}
+		cc, err := grpc.NewClient(n.GRPCAddress, dopts...)
 		if err != nil {
 			continue
 		}
@@ -56,7 +60,7 @@ func (s *Service) OrphanGCOnce(ctx context.Context, minAge time.Duration, maxDel
 			if maxDeletesPerNode > 0 && deleted >= maxDeletesPerNode {
 				break
 			}
-			cc2, err := grpc.NewClient(n.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			cc2, err := grpc.NewClient(n.GRPCAddress, dopts...)
 			if err != nil {
 				continue
 			}

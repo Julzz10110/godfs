@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/security"
 )
 
 func main() {
@@ -46,7 +46,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(master, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts, err := security.ClientDialOptions()
+	if err != nil {
+		log.Fatalf("dial options: %v", err)
+	}
+	conn, err := grpc.NewClient(master, dopts...)
 	if err != nil {
 		log.Fatalf("dial master: %v", err)
 	}
@@ -91,7 +95,24 @@ func main() {
 		log.Fatalf("listen: %v", err)
 	}
 
-	srv := grpc.NewServer()
+	tlsCfg := security.LoadTLSConfigFromEnv()
+	var serverOpts []grpc.ServerOption
+	if tlsCfg.Enabled {
+		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
+			log.Fatal("GODFS_TLS_ENABLED requires GODFS_TLS_CERT_FILE and GODFS_TLS_KEY_FILE")
+		}
+		creds, err := security.ServerTransportCredentials(tlsCfg)
+		if err != nil {
+			log.Fatalf("server tls: %v", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(creds))
+	}
+	clusterKey := os.Getenv("GODFS_CLUSTER_KEY")
+	serverOpts = append(serverOpts,
+		grpc.ChainUnaryInterceptor(grpcsvc.NewChunkUnaryInterceptor(clusterKey)),
+		grpc.ChainStreamInterceptor(grpcsvc.NewChunkStreamInterceptor(clusterKey)),
+	)
+	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st})
 
 	log.Printf("chunk server listening on %s", listen)

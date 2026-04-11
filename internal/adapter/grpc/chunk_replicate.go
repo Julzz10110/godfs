@@ -4,16 +4,20 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/security"
 )
 
 const syncChunkPart = 256 * 1024
 
 // ReplicateFullChunk pushes full chunk bytes from primary to a secondary via SyncChunk.
 func ReplicateFullChunk(ctx context.Context, targetAddr, chunkID string, data []byte) error {
-	conn, err := grpc.NewClient(targetAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts, err := security.ClientDialOptions()
+	if err != nil {
+		return err
+	}
+	conn, err := grpc.NewClient(targetAddr, dopts...)
 	if err != nil {
 		return err
 	}

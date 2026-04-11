@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	"godfs/internal/adapter/repository/metadata"
 	"godfs/internal/config"
 	"godfs/internal/raftmeta"
+	"godfs/internal/security"
 	"godfs/internal/usecase"
 )
 
@@ -245,7 +245,11 @@ func main() {
 						}
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						err := func() error {
-							cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+							dopts, err := security.ClientDialOptions()
+							if err != nil {
+								return err
+							}
+							cc, err := grpc.NewClient(addr, dopts...)
 							if err != nil {
 								return err
 							}
@@ -294,7 +298,36 @@ func main() {
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
 	}
 
-	srv := grpc.NewServer()
+	tlsCfg := security.LoadTLSConfigFromEnv()
+	var serverOpts []grpc.ServerOption
+	if tlsCfg.Enabled {
+		if tlsCfg.CertFile == "" || tlsCfg.KeyFile == "" {
+			log.Fatal("GODFS_TLS_ENABLED requires GODFS_TLS_CERT_FILE and GODFS_TLS_KEY_FILE")
+		}
+		creds, err := security.ServerTransportCredentials(tlsCfg)
+		if err != nil {
+			log.Fatalf("server tls: %v", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(creds))
+	}
+	auth, err := security.LoadAuthFromEnv()
+	if err != nil {
+		log.Fatalf("auth config: %v", err)
+	}
+	rbacJSON := security.RBACRulesJSON()
+	rbac, err := security.NewRBAC(rbacJSON, rbacJSON == "")
+	if err != nil {
+		log.Fatalf("rbac: %v", err)
+	}
+	audit, err := security.NewAuditLoggerFromEnv()
+	if err != nil {
+		log.Fatalf("audit: %v", err)
+	}
+	if auth.Enabled {
+		serverOpts = append(serverOpts, grpc.ChainUnaryInterceptor(grpcsvc.NewMasterUnaryInterceptor(auth, rbac, audit)))
+	}
+
+	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterMasterServiceServer(srv, &grpcsvc.MasterServer{Store: store})
 
 	if err := srv.Serve(ln); err != nil {

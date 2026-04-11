@@ -8,11 +8,11 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/internal/domain"
+	"godfs/internal/security"
 	"godfs/internal/usecase"
 )
 
@@ -146,7 +146,11 @@ func deleteChunkOnPeer(ctx context.Context, addr, chunkID string) error {
 }
 
 func deleteChunkOnce(ctx context.Context, addr, chunkID string) error {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dopts, err := security.ClientDialOptions()
+	if err != nil {
+		return err
+	}
+	conn, err := grpc.NewClient(addr, dopts...)
 	if err != nil {
 		return err
 	}

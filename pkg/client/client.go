@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/security"
 )
 
 const defaultChunkSize = 64 * 1024 * 1024
@@ -24,6 +24,7 @@ type Client struct {
 	conn   *grpc.ClientConn
 
 	chunkSize int64
+	apiKey    string
 
 	mu    sync.Mutex
 	chCon map[string]*grpc.ClientConn
@@ -38,7 +39,17 @@ func New(masterAddr string) (*Client, error) {
 
 // NewWithChunkSize is like [New] but sets the client-side chunk boundary used for splitting writes.
 func NewWithChunkSize(masterAddr string, chunkSize int64) (*Client, error) {
-	conn, err := grpc.NewClient(masterAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return NewWithOptions(masterAddr, chunkSize, "")
+}
+
+// NewWithOptions is like [NewWithChunkSize] but sets an explicit API key/JWT bearer (overrides GODFS_CLIENT_API_KEY).
+// TLS and credentials follow GODFS_TLS_* environment variables; see internal/security package.
+func NewWithOptions(masterAddr string, chunkSize int64, apiKey string) (*Client, error) {
+	opts, err := security.UserClientDialOptions(apiKey)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(masterAddr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +60,7 @@ func NewWithChunkSize(masterAddr string, chunkSize int64) (*Client, error) {
 		master:    godfsv1.NewMasterServiceClient(conn),
 		conn:      conn,
 		chunkSize: chunkSize,
+		apiKey:    apiKey,
 		chCon:     map[string]*grpc.ClientConn{},
 	}, nil
 }
@@ -70,7 +82,11 @@ func (c *Client) chunkConn(addr string) (*grpc.ClientConn, error) {
 	if cc, ok := c.chCon[addr]; ok {
 		return cc, nil
 	}
-	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	opts, err := security.UserClientDialOptions(c.apiKey)
+	if err != nil {
+		return nil, err
+	}
+	cc, err := grpc.NewClient(addr, opts...)
 	if err != nil {
 		return nil, err
 	}
