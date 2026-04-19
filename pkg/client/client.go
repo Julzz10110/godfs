@@ -67,6 +67,29 @@ func NewWithOptions(masterAddr string, chunkSize int64, apiKey string) (*Client,
 	}, nil
 }
 
+// NewGateway returns a client intended for an HTTP gateway: dial options do not read GODFS_CLIENT_API_KEY.
+// Pass Bearer tokens per request using grpc metadata on the context.
+func NewGateway(masterAddr string, chunkSize int64) (*Client, error) {
+	opts, err := security.UserClientDialOptionsForGateway()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(masterAddr, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if chunkSize <= 0 {
+		chunkSize = defaultChunkSize
+	}
+	return &Client{
+		master:    godfsv1.NewMasterServiceClient(conn),
+		conn:      conn,
+		chunkSize: chunkSize,
+		apiKey:    "",
+		chCon:     map[string]*grpc.ClientConn{},
+	}, nil
+}
+
 // Close releases resources.
 func (c *Client) Close() error {
 	c.mu.Lock()

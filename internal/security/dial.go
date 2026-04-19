@@ -82,3 +82,17 @@ func UserClientDialOptions(apiKey string) ([]grpc.DialOption, error) {
 	opts = append(opts, config.GRPCDialOptions()...)
 	return opts, nil
 }
+
+// UserClientDialOptionsForGateway returns TLS + client options for a multi-tenant HTTP gateway:
+// it does not attach GODFS_CLIENT_API_KEY from the environment. Send Bearer tokens per request
+// via metadata on each RPC (e.g. metadata.AppendToOutgoingContext).
+func UserClientDialOptionsForGateway() ([]grpc.DialOption, error) {
+	tc, err := ClientTransport()
+	if err != nil {
+		return nil, err
+	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(tc)}
+	opts = append(opts, observability.GRPCClientDialOptions()...)
+	opts = append(opts, config.GRPCDialOptions()...)
+	return opts, nil
+}
