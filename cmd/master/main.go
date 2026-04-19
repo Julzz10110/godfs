@@ -190,123 +190,41 @@ func main() {
 		store = rstore
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
 
-		if rebalanceEvery > 0 {
-			go func() {
-				t := time.NewTicker(rebalanceEvery)
-				defer t.Stop()
-				for range t.C {
-					if !rstore.IsLeader() {
-						continue
-					}
-					now := time.Now().UTC()
-					for i := 0; i < rebalanceMaxPerTick; i++ {
-						act, err := rstore.PlanRebalance(now)
-						if err != nil || act == nil {
-							break
-						}
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-						err = rstore.ExecuteRebalance(ctx, act)
-						cancel()
-						if err == nil {
-							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-							_ = rstore.ClearRebalanceTask(uctx, act.ChunkID)
-							ucancel()
-							continue
-						}
-						// backoff per chunk
-						attempts := rstore.RebalanceAttempts(act.ChunkID)
-						if attempts >= rebalanceMaxAttempts {
-							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-							_ = rstore.ClearRebalanceTask(uctx, act.ChunkID)
-							ucancel()
-							continue
-						}
-						backoff := rebalanceBackoffBase * time.Duration(1<<min(attempts, 10))
-						if backoff > rebalanceBackoffMax {
-							backoff = rebalanceBackoffMax
-						}
-						next := now.Add(backoff).Unix()
-						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-						_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, err.Error())
-						ucancel()
-					}
-				}
-			}()
-		}
-
-		if gcEvery > 0 {
-			go func() {
-				t := time.NewTicker(gcEvery)
-				defer t.Stop()
-				for range t.C {
-					if !rstore.IsLeader() {
-						continue
-					}
-					now := time.Now().UTC()
-					for i := 0; i < gcMaxPerTick; i++ {
-						cid, addr, attempts, ok := rstore.PlanDeleteGC(now)
-						if !ok {
-							break
-						}
-						if attempts >= gcMaxAttempts {
-							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-							_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
-							ucancel()
-							continue
-						}
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-						err := func() error {
-							dopts, err := security.ClientDialOptions()
-							if err != nil {
-								return err
-							}
-							cc, err := grpc.NewClient(addr, dopts...)
-							if err != nil {
-								return err
-							}
-							defer cc.Close()
-							cli := godfsv1.NewChunkServiceClient(cc)
-							_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
-							return err
-						}()
-						cancel()
-						if err == nil {
-							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-							_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
-							ucancel()
-							continue
-						}
-						// Backoff grows exponentially with attempts.
-						backoff := gcBaseBackoff * time.Duration(1<<min(attempts, 10))
-						if backoff > gcMaxBackoff {
-							backoff = gcMaxBackoff
-						}
-						next := now.Add(backoff).Unix()
-						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-						_ = rstore.MarkPendingDeleteAttempt(uctx, cid, addr, attempts+1, next)
-						ucancel()
-					}
-				}
-			}()
-		}
-
-		if orphanEvery > 0 {
-			go func() {
-				t := time.NewTicker(orphanEvery)
-				defer t.Stop()
-				for range t.C {
-					if !rstore.IsLeader() {
-						continue
-					}
-					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					_ = rstore.OrphanGCOnce(ctx, orphanMinAge, orphanMaxPerNode)
-					cancel()
-				}
-			}()
-		}
+		startRaftBackgroundMaintenance(rstore, maintenanceLoopConfig{
+			rebalanceEvery:       rebalanceEvery,
+			rebalanceMaxPerTick:  rebalanceMaxPerTick,
+			rebalanceMaxAttempts: rebalanceMaxAttempts,
+			rebalanceBackoffBase: rebalanceBackoffBase,
+			rebalanceBackoffMax:  rebalanceBackoffMax,
+			gcEvery:              gcEvery,
+			gcMaxPerTick:         gcMaxPerTick,
+			gcMaxAttempts:        gcMaxAttempts,
+			gcBaseBackoff:        gcBaseBackoff,
+			gcMaxBackoff:         gcMaxBackoff,
+			orphanEvery:          orphanEvery,
+			orphanMinAge:         orphanMinAge,
+			orphanMaxPerNode:     orphanMaxPerNode,
+		})
 	} else {
-		store = metadata.NewStore(chunkSize, replication)
+		metaStore := metadata.NewStore(chunkSize, replication)
+		metaStore.SetNodeDeadAfter(nodeDeadAfter)
+		store = metaStore
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
+		startSingleMasterBackgroundMaintenance(metaStore, maintenanceLoopConfig{
+			rebalanceEvery:       rebalanceEvery,
+			rebalanceMaxPerTick:  rebalanceMaxPerTick,
+			rebalanceMaxAttempts: rebalanceMaxAttempts,
+			rebalanceBackoffBase: rebalanceBackoffBase,
+			rebalanceBackoffMax:  rebalanceBackoffMax,
+			gcEvery:              gcEvery,
+			gcMaxPerTick:         gcMaxPerTick,
+			gcMaxAttempts:        gcMaxAttempts,
+			gcBaseBackoff:        gcBaseBackoff,
+			gcMaxBackoff:         gcMaxBackoff,
+			orphanEvery:          orphanEvery,
+			orphanMinAge:         orphanMinAge,
+			orphanMaxPerNode:     orphanMaxPerNode,
+		})
 	}
 
 	tlsCfg := security.LoadTLSConfigFromEnv()

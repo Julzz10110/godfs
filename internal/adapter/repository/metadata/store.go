@@ -15,7 +15,7 @@ import (
 	"godfs/internal/placement"
 )
 
-// Store is an in-memory metadata store (Phase 1 — no Raft).
+// Store is an in-memory metadata store.
 type Store struct {
 	mu sync.RWMutex
 
@@ -29,6 +29,12 @@ type Store struct {
 	// placementRR advances after each successful Pick to rotate tie-breaking (see placement.Pick).
 	placementRR int
 
+	// In-memory master: node liveness, async delete-GC on chunk nodes, rebalance/heal (see also raftmeta.State).
+	nodeDeadAfter  time.Duration
+	nodeStatus     map[domain.NodeID]*nodeHBStatus
+	pendingDeletes map[domain.ChunkID]map[string]*pendingChunkDelete
+	rebalanceTasks map[domain.ChunkID]*rebalanceWork
+
 	dirs  map[string]struct{}
 	files map[string]*fileRec
 
@@ -37,6 +43,24 @@ type Store struct {
 	leaseDur time.Duration
 
 	snapshots map[string]*domain.BackupSnapshot
+}
+
+type nodeHBStatus struct {
+	LastSeen      time.Time
+	CapacityBytes int64
+	UsedBytes     int64
+}
+
+type pendingChunkDelete struct {
+	CreatedUnix     int64
+	Attempts        int
+	NextAttemptUnix int64
+}
+
+type rebalanceWork struct {
+	Attempts        int
+	NextAttemptUnix int64
+	LastError       string
 }
 
 type fileRec struct {
@@ -71,17 +95,38 @@ func NewStore(chunkSize int64, replication int) *Store {
 		dirs: map[string]struct{}{
 			"/": {},
 		},
-		files:         map[string]*fileRec{},
-		chunks:        map[domain.ChunkID]*chunkRec{},
-		nodeSet:       map[domain.NodeID]int{},
-		nodeUsedBytes: map[domain.NodeID]int64{},
-		leaseDur:      time.Duration(config.DefaultLeaseSec) * time.Second,
-		snapshots:     map[string]*domain.BackupSnapshot{},
+		files:          map[string]*fileRec{},
+		chunks:         map[domain.ChunkID]*chunkRec{},
+		nodeSet:        map[domain.NodeID]int{},
+		nodeUsedBytes:  map[domain.NodeID]int64{},
+		nodeStatus:     map[domain.NodeID]*nodeHBStatus{},
+		pendingDeletes: map[domain.ChunkID]map[string]*pendingChunkDelete{},
+		rebalanceTasks: map[domain.ChunkID]*rebalanceWork{},
+		leaseDur:       time.Duration(config.DefaultLeaseSec) * time.Second,
+		snapshots:      map[string]*domain.BackupSnapshot{},
 	}
 }
 
-// Heartbeat is a no-op for the in-memory store.
-func (s *Store) Heartbeat(_ context.Context, _ domain.NodeID, _ int64, _ int64) error {
+// SetNodeDeadAfter configures how long after the last heartbeat a node is treated as dead
+// for placement and reads (0 = disable liveness filtering).
+func (s *Store) SetNodeDeadAfter(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nodeDeadAfter = d
+}
+
+// Heartbeat records liveness and disk telemetry for a chunk node.
+func (s *Store) Heartbeat(_ context.Context, nodeID domain.NodeID, capacityBytes, usedBytes int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.nodeStatus[nodeID]
+	if !ok {
+		st = &nodeHBStatus{}
+		s.nodeStatus[nodeID] = st
+	}
+	st.LastSeen = time.Now().UTC()
+	st.CapacityBytes = capacityBytes
+	st.UsedBytes = usedBytes
 	return nil
 }
 
@@ -121,15 +166,54 @@ func (s *Store) RegisterNode(_ context.Context, n domain.ChunkNode) error {
 	if _, ok := s.nodeUsedBytes[n.ID]; !ok {
 		s.nodeUsedBytes[n.ID] = 0
 	}
+	if _, ok := s.nodeStatus[n.ID]; !ok {
+		s.nodeStatus[n.ID] = &nodeHBStatus{}
+	}
 	return nil
 }
 
+func (s *Store) isAliveAt(id domain.NodeID, at time.Time) bool {
+	st, ok := s.nodeStatus[id]
+	if !ok || st.LastSeen.IsZero() || s.nodeDeadAfter <= 0 {
+		return true
+	}
+	return !st.LastSeen.Add(s.nodeDeadAfter).Before(at)
+}
+
+func (s *Store) effectiveUsedForPlacementLocked() map[domain.NodeID]int64 {
+	out := make(map[domain.NodeID]int64)
+	for id, u := range s.nodeUsedBytes {
+		out[id] = u
+	}
+	for id, st := range s.nodeStatus {
+		if st != nil && st.UsedBytes > out[id] {
+			out[id] = st.UsedBytes
+		}
+	}
+	return out
+}
+
 // pickNodes chooses distinct chunk servers by free capacity (see [placement.Pick]).
+// Caller must hold s.mu (write lock).
 func (s *Store) pickNodes(n int) ([]domain.ChunkNode, error) {
 	if len(s.nodes) == 0 {
 		return nil, domain.ErrNoChunkServer
 	}
-	out, err := placement.Pick(s.nodes, n, s.nodeUsedBytes, s.placementRR)
+	candidates := s.nodes
+	if s.nodeDeadAfter > 0 {
+		at := time.Now().UTC()
+		var filtered []domain.ChunkNode
+		for _, node := range s.nodes {
+			if s.isAliveAt(node.ID, at) {
+				filtered = append(filtered, node)
+			}
+		}
+		candidates = filtered
+	}
+	if len(candidates) == 0 {
+		return nil, domain.ErrNoChunkServer
+	}
+	out, err := placement.Pick(candidates, n, s.effectiveUsedForPlacementLocked(), s.placementRR)
 	if err != nil {
 		return nil, err
 	}
@@ -259,11 +343,23 @@ func (s *Store) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 		for i, r := range cr.replicas {
 			addrs[i] = r.Address
 		}
-		s.releaseChunkFromReplicas(cr.replicas)
 		infos = append(infos, domain.ChunkDeleteInfo{
 			ChunkID:  cid,
 			Replicas: addrs,
 		})
+		if len(addrs) > 0 {
+			set := s.pendingDeletes[cid]
+			if set == nil {
+				set = map[string]*pendingChunkDelete{}
+				s.pendingDeletes[cid] = set
+			}
+			for _, a := range addrs {
+				if _, ok := set[a]; !ok {
+					set[a] = &pendingChunkDelete{CreatedUnix: time.Now().UTC().Unix()}
+				}
+			}
+		}
+		s.releaseChunkFromReplicas(cr.replicas)
 		delete(s.chunks, cid)
 	}
 	delete(s.files, fp)
@@ -647,5 +743,18 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 	if len(cr.checksum) > 0 {
 		sum = append([]byte(nil), cr.checksum...)
 	}
-	return cid, append([]domain.ChunkReplica(nil), cr.replicas...), chunkOff, avail, cr.version, sum, nil
+	reps := append([]domain.ChunkReplica(nil), cr.replicas...)
+	if s.nodeDeadAfter > 0 && len(reps) > 1 {
+		at := time.Now().UTC()
+		var alive, dead []domain.ChunkReplica
+		for _, r := range reps {
+			if s.isAliveAt(r.NodeID, at) {
+				alive = append(alive, r)
+			} else {
+				dead = append(dead, r)
+			}
+		}
+		reps = append(alive, dead...)
+	}
+	return cid, reps, chunkOff, avail, cr.version, sum, nil
 }

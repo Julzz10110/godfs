@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// ReplicaConfig holds replication policy (MVP: factor only).
+// ReplicaConfig holds replication policy (replication factor only; no per-path overrides yet).
 type ReplicaConfig struct {
 	Factor int
 }

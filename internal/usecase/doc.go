@@ -1,3 +1,3 @@
 // Package usecase is reserved for application orchestration (use cases) on top of domain + ports.
-// Phase 1 keeps orchestration in gRPC handlers; incrementally move logic here when adding Raft and policies.
+// Orchestration may live in gRPC handlers initially and move here as behaviors grow.
 package usecase

@@ -214,6 +214,22 @@ func (s *State) Heartbeat(nodeID domain.NodeID, capacityBytes, usedBytes int64, 
 	st.UsedBytes = usedBytes
 }
 
+func (s *State) effectiveUsedForPlacement() map[domain.NodeID]int64 {
+	out := make(map[domain.NodeID]int64, len(s.NodeUsedBytes)+len(s.NodeStatus))
+	for id, u := range s.NodeUsedBytes {
+		out[id] = u
+	}
+	for id, st := range s.NodeStatus {
+		if st == nil {
+			continue
+		}
+		if st.UsedBytes > out[id] {
+			out[id] = st.UsedBytes
+		}
+	}
+	return out
+}
+
 func (s *State) pickNodesAt(n int, at time.Time) ([]domain.ChunkNode, error) {
 	if len(s.Nodes) == 0 {
 		return nil, domain.ErrNoChunkServer
@@ -231,7 +247,7 @@ func (s *State) pickNodesAt(n int, at time.Time) ([]domain.ChunkNode, error) {
 	if len(candidates) == 0 {
 		return nil, domain.ErrNoChunkServer
 	}
-	out, err := placement.Pick(candidates, n, s.NodeUsedBytes, s.PlacementRR)
+	out, err := placement.Pick(candidates, n, s.effectiveUsedForPlacement(), s.PlacementRR)
 	if err != nil {
 		return nil, err
 	}

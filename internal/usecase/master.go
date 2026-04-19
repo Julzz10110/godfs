@@ -8,7 +8,7 @@ import (
 )
 
 // MasterStore defines the metadata operations required by the gRPC adapter.
-// In Stage 2 this will be implemented by a Raft-backed service; in Stage 1 it is satisfied by metadata.Store.
+// Implementations include the in-memory metadata.Store and the Raft-backed service.
 type MasterStore interface {
 	RegisterNode(ctx context.Context, n domain.ChunkNode) error
 

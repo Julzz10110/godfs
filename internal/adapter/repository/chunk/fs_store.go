@@ -178,3 +178,28 @@ func (f *FSStore) ListChunks() (map[string]time.Time, error) {
 	}
 	return out, nil
 }
+
+// TotalChunkBytes returns the sum of *.chk file sizes under dataDir (best-effort for telemetry).
+func (f *FSStore) TotalChunkBytes() (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entries, err := os.ReadDir(f.dataDir)
+	if err != nil {
+		return 0, err
+	}
+	var sum int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".chk") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		sum += info.Size()
+	}
+	return sum, nil
+}

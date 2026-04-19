@@ -89,11 +89,18 @@ func main() {
 	}
 	defer conn.Close()
 
+	capacityBytes := int64(1 << 40)
+	if v := os.Getenv("GODFS_CHUNK_CAPACITY_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			capacityBytes = n
+		}
+	}
+
 	mc := godfsv1.NewMasterServiceClient(conn)
 	if _, err := mc.RegisterNode(ctx, &godfsv1.RegisterNodeRequest{
 		NodeId:        nodeID,
 		GrpcAddress:   advertise,
-		CapacityBytes: 1 << 40,
+		CapacityBytes: capacityBytes,
 	}); err != nil {
 		log.Fatalf("register: %v", err)
 	}
@@ -109,12 +116,16 @@ func main() {
 		t := time.NewTicker(hbInterval)
 		defer t.Stop()
 		for range t.C {
+			used := int64(0)
+			if u, err := st.TotalChunkBytes(); err == nil {
+				used = u
+			}
 			hctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_, err := mc.Heartbeat(hctx, &godfsv1.HeartbeatRequest{
 				NodeId:        nodeID,
 				GrpcAddress:   advertise,
-				CapacityBytes: 1 << 40,
-				UsedBytes:     0,
+				CapacityBytes: capacityBytes,
+				UsedBytes:     used,
 			})
 			cancel()
 			if err != nil {

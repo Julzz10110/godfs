@@ -22,7 +22,7 @@ type Chunk struct {
 // Lease grants exclusive write to one client for a short period.
 type Lease struct {
 	ID        LeaseID
-	Holder    string // client id — MVP uses opaque lease token
+	Holder    string // client id; opaque lease token
 	ExpiresAt time.Time
 	ChunkID   ChunkID
 }

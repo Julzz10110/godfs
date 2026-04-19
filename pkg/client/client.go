@@ -18,7 +18,7 @@ import (
 
 const defaultChunkSize = 64 * 1024 * 1024
 
-// Client is the goDFS SDK (Phase 1).
+// Client is the goDFS client SDK.
 type Client struct {
 	master godfsv1.MasterServiceClient
 	conn   *grpc.ClientConn
