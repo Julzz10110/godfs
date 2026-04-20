@@ -44,3 +44,34 @@ func TestRequirePath(t *testing.T) {
 		t.Fatal("/a")
 	}
 }
+
+func TestParseSingleByteRange(t *testing.T) {
+	type tc struct {
+		h    string
+		size int64
+		ok   bool
+		s    int64
+		e    int64
+	}
+	tests := []tc{
+		{h: "bytes=0-0", size: 10, ok: true, s: 0, e: 1},
+		{h: "bytes=0-9", size: 10, ok: true, s: 0, e: 10},
+		{h: "bytes=1-", size: 10, ok: true, s: 1, e: 10},
+		{h: "bytes=9-", size: 10, ok: true, s: 9, e: 10},
+		{h: "bytes=10-", size: 10, ok: false},
+		{h: "bytes=5-4", size: 10, ok: false},
+		{h: "bytes=-5", size: 10, ok: false},    // suffix ranges not supported (yet)
+		{h: "bytes=0-100", size: 10, ok: true, s: 0, e: 10},
+		{h: "bytes=0-", size: 0, ok: false},
+		{h: "", size: 10, ok: false},
+	}
+	for _, tt := range tests {
+		s, e, ok := parseSingleByteRange(tt.h, tt.size)
+		if ok != tt.ok {
+			t.Fatalf("%q size=%d: ok=%v want %v", tt.h, tt.size, ok, tt.ok)
+		}
+		if ok && (s != tt.s || e != tt.e) {
+			t.Fatalf("%q size=%d: got [%d,%d) want [%d,%d)", tt.h, tt.size, s, e, tt.s, tt.e)
+		}
+	}
+}

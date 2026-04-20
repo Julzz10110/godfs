@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,7 @@ type gatewayClient interface {
 	Stat(ctx context.Context, path string) (*client.FileInfo, error)
 	List(ctx context.Context, path string) ([]*godfsv1.DirEntry, error)
 	Read(ctx context.Context, path string) ([]byte, error)
+	ReadRange(ctx context.Context, path string, offset, length int64) ([]byte, error)
 	Write(ctx context.Context, path string, data []byte) error
 
 	CreateSnapshot(ctx context.Context, label string) (snapshotID string, createdAtUnix int64, err error)
@@ -228,6 +230,38 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p = okPath
 	}
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Optional single-range support.
+	if rh := strings.TrimSpace(r.Header.Get("Range")); rh != "" {
+		st, err := s.Client.Stat(ctx, p)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if st.IsDir {
+			writeJSON(w, http.StatusBadRequest, errJSON{Error: "is directory"})
+			return
+		}
+		start, end, ok := parseSingleByteRange(rh, st.Size)
+		if !ok {
+			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(st.Size, 10))
+			writeJSON(w, http.StatusRequestedRangeNotSatisfiable, errJSON{Error: "invalid range"})
+			return
+		}
+		data, err := s.Client.ReadRange(ctx, p, start, end-start)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(st.Size, 10))
+		w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(data)
+		return
+	}
+
 	data, err := s.Client.Read(ctx, p)
 	if err != nil {
 		writeErr(w, err)
@@ -354,4 +388,42 @@ func DefaultMaxBodyBytes() int64 {
 		return def
 	}
 	return n
+}
+
+var singleRangeRe = regexp.MustCompile(`^bytes=(\d+)-(\d+)?$`)
+
+// parseSingleByteRange parses a single RFC 7233 byte range header for known size.
+// It returns [start,end) if valid and satisfiable.
+func parseSingleByteRange(h string, size int64) (start, end int64, ok bool) {
+	if size < 0 {
+		return 0, 0, false
+	}
+	m := singleRangeRe.FindStringSubmatch(strings.TrimSpace(h))
+	if m == nil {
+		return 0, 0, false
+	}
+	s, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || s < 0 {
+		return 0, 0, false
+	}
+	var e int64
+	if m[2] == "" {
+		e = size
+	} else {
+		v, err := strconv.ParseInt(m[2], 10, 64)
+		if err != nil || v < 0 {
+			return 0, 0, false
+		}
+		e = v + 1
+	}
+	if s >= size {
+		return 0, 0, false
+	}
+	if e > size {
+		e = size
+	}
+	if e <= s {
+		return 0, 0, false
+	}
+	return s, e, true
 }
