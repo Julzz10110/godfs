@@ -1,6 +1,7 @@
 package restgateway
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,12 +9,31 @@ import (
 	"strconv"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
+	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/pkg/client"
 )
 
+type gatewayClient interface {
+	Mkdir(ctx context.Context, path string) error
+	Create(ctx context.Context, path string) error
+	Delete(ctx context.Context, path string) error
+	Rename(ctx context.Context, oldPath, newPath string) error
+	Stat(ctx context.Context, path string) (*client.FileInfo, error)
+	List(ctx context.Context, path string) ([]*godfsv1.DirEntry, error)
+	Read(ctx context.Context, path string) ([]byte, error)
+	Write(ctx context.Context, path string, data []byte) error
+
+	CreateSnapshot(ctx context.Context, label string) (snapshotID string, createdAtUnix int64, err error)
+	ListSnapshots(ctx context.Context) ([]*godfsv1.SnapshotListEntry, error)
+	GetSnapshot(ctx context.Context, snapshotID string) (*godfsv1.BackupManifest, error)
+	DeleteSnapshot(ctx context.Context, snapshotID string) error
+}
+
 // Server exposes a minimal REST mapping over pkg/client.
 type Server struct {
-	Client  *client.Client
+	Client  gatewayClient
 	MaxBody int64
 }
 
@@ -54,6 +74,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/fs/rename", s.handleRename)
 	mux.HandleFunc("GET /v1/fs/content", s.handleGetContent)
 	mux.HandleFunc("PUT /v1/fs/content", s.handlePutContent)
+
+	mux.HandleFunc("POST /v1/snapshots", s.handleCreateSnapshot)
+	mux.HandleFunc("GET /v1/snapshots", s.handleListSnapshots)
+	mux.HandleFunc("GET /v1/snapshots/{id}", s.handleGetSnapshot)
+	mux.HandleFunc("DELETE /v1/snapshots/{id}", s.handleDeleteSnapshot)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +259,83 @@ func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Client.Write(ctx, p, data); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type createSnapshotBody struct {
+	Label string `json:"label"`
+}
+
+func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
+	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	var b createSnapshotBody
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid json"})
+		return
+	}
+	id, ts, err := s.Client.CreateSnapshot(ctx, b.Label)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"snapshot_id":      id,
+		"created_at_unix":  ts,
+	})
+}
+
+func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	entries, err := s.Client.ListSnapshots(ctx)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	out := make([]map[string]interface{}, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]interface{}{
+			"snapshot_id":     e.GetSnapshotId(),
+			"label":           e.GetLabel(),
+			"created_at_unix": e.GetCreatedAtUnix(),
+			"file_count":      e.GetFileCount(),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"snapshots": out})
+}
+
+func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
+	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "missing snapshot id"})
+		return
+	}
+	manifest, err := s.Client.GetSnapshot(ctx, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	b, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(manifest)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errJSON{Error: "internal error"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(b)
+}
+
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "missing snapshot id"})
+		return
+	}
+	if err := s.Client.DeleteSnapshot(ctx, id); err != nil {
 		writeErr(w, err)
 		return
 	}
