@@ -3,6 +3,7 @@ package restgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
@@ -26,6 +28,7 @@ type gatewayClient interface {
 	Read(ctx context.Context, path string) ([]byte, error)
 	ReadRange(ctx context.Context, path string, offset, length int64) ([]byte, error)
 	Write(ctx context.Context, path string, data []byte) error
+	WriteFromReader(ctx context.Context, path string, r io.Reader) error
 
 	CreateSnapshot(ctx context.Context, label string) (snapshotID string, createdAtUnix int64, err error)
 	ListSnapshots(ctx context.Context) ([]*godfsv1.SnapshotListEntry, error)
@@ -40,7 +43,9 @@ type Server struct {
 }
 
 type errJSON struct {
-	Error string `json:"error"`
+	Error      string `json:"error"`
+	GRPCCode   string `json:"grpc_code,omitempty"`
+	HTTPStatus int    `json:"http_status,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -55,7 +60,14 @@ func writeErr(w http.ResponseWriter, err error) {
 	if st == http.StatusInternalServerError {
 		msg = "internal error"
 	}
-	writeJSON(w, st, errJSON{Error: msg})
+	out := errJSON{
+		Error:      msg,
+		HTTPStatus: st,
+	}
+	if s, ok := status.FromError(err); ok {
+		out.GRPCCode = s.Code().String()
+	}
+	writeJSON(w, st, out)
 }
 
 func requirePath(q string) (string, bool) {
@@ -287,12 +299,12 @@ func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
 		max = 80 << 20
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, max+1)
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusRequestEntityTooLarge, errJSON{Error: "body too large"})
-		return
-	}
-	if err := s.Client.Write(ctx, p, data); err != nil {
+	if err := s.Client.WriteFromReader(ctx, p, r.Body); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, errJSON{Error: "body too large"})
+			return
+		}
 		writeErr(w, err)
 		return
 	}

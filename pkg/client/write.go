@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"golang.org/x/sync/errgroup"
@@ -96,6 +97,73 @@ func (c *Client) writeSegment(ctx context.Context, path string, data []byte, pos
 	})
 }
 
+func (c *Client) writeBytesOnce(ctx context.Context, path string, pos int64, b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	n := int64(len(b))
+	pw, err := c.master.PrepareWrite(ctx, &godfsv1.PrepareWriteRequest{
+		Path:   path,
+		Offset: pos,
+		Length: n,
+	})
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+
+	cc, err := c.chunkConn(pw.PrimaryAddress)
+	if err != nil {
+		return err
+	}
+	ch := godfsv1.NewChunkServiceClient(cc)
+	ws, err := ch.WriteChunk(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ws.Send(&godfsv1.WriteChunkRequest{
+		Frame: &godfsv1.WriteChunkRequest_Meta{
+			Meta: &godfsv1.WriteChunkMeta{
+				ChunkId:            pw.ChunkId,
+				OffsetInChunk:      pw.ChunkOffset,
+				LeaseId:            pw.LeaseId,
+				Version:            pw.Version,
+				SecondaryAddresses: pw.SecondaryAddresses,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+	if err := ws.Send(&godfsv1.WriteChunkRequest{
+		Frame: &godfsv1.WriteChunkRequest_Data{Data: b},
+	}); err != nil {
+		return err
+	}
+	resp, err := ws.CloseAndRecv()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.master.CommitChunk(ctx, &godfsv1.CommitChunkRequest{
+		Path:           path,
+		ChunkId:        pw.ChunkId,
+		ChunkIndex:     pw.ChunkIndex,
+		ChunkOffset:    pw.ChunkOffset,
+		Written:        n,
+		ChecksumSha256: resp.ChecksumSha256,
+		Version:        pw.Version,
+	})
+	if err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) writeBytes(ctx context.Context, path string, pos int64, b []byte) error {
+	return grpcRetry(ctx, 5, func() error {
+		return c.writeBytesOnce(ctx, path, pos, b)
+	})
+}
+
 // Write writes full data to path (file must exist). Multiple chunk boundaries may be written in parallel (see GODFS_CLIENT_WRITE_PARALLELISM).
 func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 	cs := c.chunkSize
@@ -143,4 +211,48 @@ func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 		})
 	}
 	return g.Wait()
+}
+
+// WriteFromReader writes bytes from r to path starting at offset 0, without buffering the entire body in memory.
+// At most one chunk (chunkSize) is buffered at a time.
+func (c *Client) WriteFromReader(ctx context.Context, path string, r io.Reader) error {
+	cs := c.chunkSize
+	if cs <= 0 {
+		cs = defaultChunkSize
+	}
+	if cs < 1 {
+		cs = 1
+	}
+	if cs > int64(int(^uint(0)>>1)) { // guard int overflow on 32-bit (unlikely here, but cheap)
+		cs = int64(int(^uint(0) >> 1))
+	}
+
+	buf := make([]byte, int(cs))
+	var filled int
+	var pos int64
+	for {
+		nr, err := r.Read(buf[filled:])
+		if nr > 0 {
+			filled += nr
+			if filled == len(buf) {
+				if err := c.writeBytes(ctx, path, pos, buf); err != nil {
+					return err
+				}
+				pos += int64(filled)
+				filled = 0
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+	}
+	if filled > 0 {
+		if err := c.writeBytes(ctx, path, pos, buf[:filled]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

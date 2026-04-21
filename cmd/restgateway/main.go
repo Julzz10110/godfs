@@ -11,6 +11,8 @@ import (
 	"godfs/internal/observability"
 	"godfs/internal/restgateway"
 	"godfs/pkg/client"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -51,9 +53,11 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	srv.Register(mux)
+	handler := restgateway.WithHTTPMetrics(mux)
+	handler = otelhttp.NewHandler(handler, "godfs.restgateway")
 
 	log.Printf("goDFS REST gateway listening on %s (master gRPC %s)", listen, master)
-	if err := http.ListenAndServe(listen, mux); err != nil {
+	if err := http.ListenAndServe(listen, handler); err != nil {
 		log.Fatal(err)
 	}
 }
