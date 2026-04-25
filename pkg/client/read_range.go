@@ -105,7 +105,9 @@ func (c *Client) ReadRange(ctx context.Context, path string, offset, length int6
 
 			var streamErr error
 			var verifyHash hash.Hash
-			if len(gr.ChunkChecksumSha256) == 32 && gr.ChunkOffset == 0 {
+			// Only verify checksum when reading the full "available" prefix from offset 0.
+			// Partial reads starting at offset 0 (e.g. HTTP Range bytes=0-0) can't be validated.
+			if len(gr.ChunkChecksumSha256) == 32 && gr.ChunkOffset == 0 && want == gr.AvailableInChunk {
 				verifyHash = sha256.New()
 			}
 			var wrote int64

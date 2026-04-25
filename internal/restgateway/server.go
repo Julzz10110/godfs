@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -244,7 +246,7 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Optional single-range support.
+	// Optional Range support (single + multi-range).
 	if rh := strings.TrimSpace(r.Header.Get("Range")); rh != "" {
 		st, err := s.Client.Stat(ctx, p)
 		if err != nil {
@@ -255,29 +257,75 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, errJSON{Error: "is directory"})
 			return
 		}
-		start, end, ok := parseSingleByteRange(rh, st.Size)
-		if !ok {
-			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(st.Size, 10))
-			writeJSON(w, http.StatusRequestedRangeNotSatisfiable, errJSON{Error: "invalid range"})
+
+		etag := contentETag(st)
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Last-Modified", st.ModTime.UTC().Format(http.TimeFormat))
+
+		// If-Range: if it doesn't match current validator, ignore Range and return full response.
+		if ir := strings.TrimSpace(r.Header.Get("If-Range")); ir != "" && !ifRangeMatches(ir, etag, st.ModTime) {
+			rh = ""
+		}
+
+		if rh != "" {
+			ranges, ok := parseMultiByteRanges(rh, st.Size, 16)
+			if !ok || len(ranges) == 0 {
+				w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(st.Size, 10))
+				writeJSON(w, http.StatusRequestedRangeNotSatisfiable, errJSON{Error: "invalid range"})
+				return
+			}
+
+			// Single-range fast path.
+			if len(ranges) == 1 {
+				start, end := ranges[0].start, ranges[0].end
+				data, err := s.Client.ReadRange(ctx, p, start, end-start)
+				if err != nil {
+					writeErr(w, err)
+					return
+				}
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(st.Size, 10))
+				w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write(data)
+				return
+			}
+
+			// Multi-range: multipart/byteranges.
+			boundary := "godfs-" + strconv.FormatUint(rand.Uint64(), 16)
+			w.Header().Set("Content-Type", `multipart/byteranges; boundary=`+boundary)
+			w.WriteHeader(http.StatusPartialContent)
+			for _, rg := range ranges {
+				if err := writeMultipartRangePart(w, boundary, st.Size, rg.start, rg.end); err != nil {
+					// best-effort; connection likely broken
+					return
+				}
+				data, err := s.Client.ReadRange(ctx, p, rg.start, rg.end-rg.start)
+				if err != nil {
+					return
+				}
+				if _, err := w.Write(data); err != nil {
+					return
+				}
+				if _, err := w.Write([]byte("\r\n")); err != nil {
+					return
+				}
+			}
+			_, _ = w.Write([]byte("--" + boundary + "--\r\n"))
 			return
 		}
-		data, err := s.Client.ReadRange(ctx, p, start, end-start)
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(st.Size, 10))
-		w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
-		w.WriteHeader(http.StatusPartialContent)
-		_, _ = w.Write(data)
-		return
 	}
 
+	// Full-body response (no Range, or If-Range mismatch).
 	data, err := s.Client.Read(ctx, p)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	// Best-effort validators.
+	if st, err := s.Client.Stat(ctx, p); err == nil && st != nil && !st.IsDir {
+		w.Header().Set("ETag", contentETag(st))
+		w.Header().Set("Last-Modified", st.ModTime.UTC().Format(http.TimeFormat))
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -403,14 +451,43 @@ func DefaultMaxBodyBytes() int64 {
 }
 
 var singleRangeRe = regexp.MustCompile(`^bytes=(\d+)-(\d+)?$`)
+var suffixRangeRe = regexp.MustCompile(`^bytes=-(\d+)$`)
+
+type byteRange struct {
+	start int64
+	end   int64 // exclusive
+}
 
 // parseSingleByteRange parses a single RFC 7233 byte range header for known size.
+// Supported forms:
+//   - bytes=start-end
+//   - bytes=start-
+//   - bytes=-N (suffix range: last N bytes)
+//
 // It returns [start,end) if valid and satisfiable.
 func parseSingleByteRange(h string, size int64) (start, end int64, ok bool) {
 	if size < 0 {
 		return 0, 0, false
 	}
-	m := singleRangeRe.FindStringSubmatch(strings.TrimSpace(h))
+	h = strings.TrimSpace(h)
+
+	// Suffix: bytes=-N (last N bytes)
+	if m := suffixRangeRe.FindStringSubmatch(h); m != nil {
+		if size == 0 {
+			return 0, 0, false
+		}
+		n, err := strconv.ParseInt(m[1], 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		if n >= size {
+			return 0, size, true
+		}
+		return size - n, size, true
+	}
+
+	// Regular: bytes=start-end | bytes=start-
+	m := singleRangeRe.FindStringSubmatch(h)
 	if m == nil {
 		return 0, 0, false
 	}
@@ -438,4 +515,68 @@ func parseSingleByteRange(h string, size int64) (start, end int64, ok bool) {
 		return 0, 0, false
 	}
 	return s, e, true
+}
+
+func parseMultiByteRanges(h string, size int64, maxRanges int) ([]byteRange, bool) {
+	h = strings.TrimSpace(h)
+	if !strings.HasPrefix(strings.ToLower(h), "bytes=") {
+		return nil, false
+	}
+	spec := strings.TrimSpace(h[len("bytes="):])
+	if spec == "" {
+		return nil, false
+	}
+	parts := strings.Split(spec, ",")
+	if maxRanges <= 0 {
+		maxRanges = 16
+	}
+	if len(parts) > maxRanges {
+		return nil, false
+	}
+	out := make([]byteRange, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, false
+		}
+		s, e, ok := parseSingleByteRange("bytes="+p, size)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, byteRange{start: s, end: e})
+	}
+	return out, true
+}
+
+func contentETag(st *client.FileInfo) string {
+	// Strong ETag based on size and mtime seconds. Good enough for gateway caching/If-Range.
+	// Format: "sizeHex-mtimeHex"
+	return `"` + strconv.FormatInt(st.Size, 16) + "-" + strconv.FormatInt(st.ModTime.Unix(), 16) + `"`
+}
+
+func ifRangeMatches(ifRangeHeader, etag string, modTime time.Time) bool {
+	v := strings.TrimSpace(ifRangeHeader)
+	if v == "" {
+		return true
+	}
+	// ETag case (quoted or weak).
+	if strings.HasPrefix(v, `"`) || strings.HasPrefix(strings.ToLower(v), "w/") {
+		return strings.EqualFold(v, etag)
+	}
+	// HTTP-date case.
+	if t, err := http.ParseTime(v); err == nil {
+		// If the resource has been modified after this date, ranges must be ignored.
+		return !modTime.After(t)
+	}
+	// Unknown validator format -> be conservative: ignore Range.
+	return false
+}
+
+func writeMultipartRangePart(w io.Writer, boundary string, size, start, end int64) error {
+	// Per RFC 7233, each part contains Content-Type and Content-Range.
+	_, err := io.WriteString(w, "--"+boundary+"\r\n"+
+		"Content-Type: application/octet-stream\r\n"+
+		"Content-Range: bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(size, 10)+"\r\n"+
+		"\r\n")
+	return err
 }

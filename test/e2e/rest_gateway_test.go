@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +140,125 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	}
 	if cr := rangeResp.Header.Get("Content-Range"); cr == "" {
 		t.Fatalf("missing Content-Range")
+	}
+
+	// Suffix range: bytes=-10 (last 10 bytes)
+	suffixReq, err := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffixReq.Header.Set("Range", "bytes=-10")
+	suffixResp, err := http.DefaultClient.Do(suffixReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer suffixResp.Body.Close()
+	sb, _ := io.ReadAll(suffixResp.Body)
+	if suffixResp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("suffix status=%d body=%q", suffixResp.StatusCode, string(sb))
+	}
+	if len(sb) != 10 {
+		t.Fatalf("suffix len=%d want 10", len(sb))
+	}
+	if !bytes.Equal(sb, payload[len(payload)-10:]) {
+		t.Fatalf("suffix mismatch")
+	}
+
+	// Multi-range: bytes=0-0,2-3 (multipart/byteranges)
+	mrReq, err := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mrReq.Header.Set("Range", "bytes=0-0,2-3")
+	mrResp, err := http.DefaultClient.Do(mrReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mrResp.Body.Close()
+	if mrResp.StatusCode != http.StatusPartialContent {
+		b, _ := io.ReadAll(mrResp.Body)
+		t.Fatalf("multi-range status=%d body=%q", mrResp.StatusCode, string(b))
+	}
+	mediatype, params, err := mime.ParseMediaType(mrResp.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parse media type: %v", err)
+	}
+	if mediatype != "multipart/byteranges" {
+		t.Fatalf("mediatype=%q", mediatype)
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		t.Fatal("missing boundary")
+	}
+	rawMR, _ := io.ReadAll(mrResp.Body)
+	// Very small manual multipart parse (enough for this test, works with binary bodies).
+	sep := []byte("--" + boundary)
+	chunks := bytes.Split(rawMR, sep)
+	// chunks[0] is preamble (likely empty/CRLF). Then parts..., and the last chunk includes "--".
+	var parts [][]byte
+	for _, c := range chunks[1:] {
+		c = bytes.TrimPrefix(c, []byte("\r\n"))
+		if len(c) >= 2 && c[0] == '-' && c[1] == '-' {
+			break // closing boundary
+		}
+		// headers end at \r\n\r\n
+		i := bytes.Index(c, []byte("\r\n\r\n"))
+		if i < 0 {
+			t.Fatalf("multipart: missing header separator in %q", string(c))
+		}
+		body := c[i+4:]
+		body = bytes.TrimSuffix(body, []byte("\r\n"))
+		parts = append(parts, body)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("multipart parts=%d raw_len=%d raw_hex=%x", len(parts), len(rawMR), rawMR)
+	}
+	if !bytes.Equal(parts[0], payload[0:1]) {
+		t.Fatalf("part1 mismatch len=%d head=%x want=%x", len(parts[0]), parts[0], payload[0:1])
+	}
+	if !bytes.Equal(parts[1], payload[2:4]) {
+		t.Fatalf("part2 mismatch len=%d head=%x want=%x", len(parts[1]), parts[1], payload[2:4])
+	}
+
+	// If-Range/ETag: matching ETag should honor Range, mismatching should return 200 full.
+	headReq, err := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = headResp.Body.Close()
+	etag := strings.TrimSpace(headResp.Header.Get("ETag"))
+	if etag == "" {
+		t.Fatal("missing ETag")
+	}
+
+	ifRangeOKReq, _ := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	ifRangeOKReq.Header.Set("Range", "bytes=0-0")
+	ifRangeOKReq.Header.Set("If-Range", etag)
+	ifRangeOKResp, err := http.DefaultClient.Do(ifRangeOKReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ifRangeOKResp.Body.Close()
+	if ifRangeOKResp.StatusCode != http.StatusPartialContent {
+		b, _ := io.ReadAll(ifRangeOKResp.Body)
+		t.Fatalf("if-range match status=%d body=%q", ifRangeOKResp.StatusCode, string(b))
+	}
+
+	ifRangeBadReq, _ := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	ifRangeBadReq.Header.Set("Range", "bytes=0-0")
+	ifRangeBadReq.Header.Set("If-Range", `"does-not-match"`)
+	ifRangeBadResp, err := http.DefaultClient.Do(ifRangeBadReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ifRangeBadResp.Body.Close()
+	if ifRangeBadResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(ifRangeBadResp.Body)
+		t.Fatalf("if-range mismatch status=%d body=%q", ifRangeBadResp.StatusCode, string(b))
 	}
 
 	// Snapshots smoke.
