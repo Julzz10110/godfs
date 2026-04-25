@@ -14,11 +14,16 @@ func TestStatusFromGRPC(t *testing.T) {
 		code codes.Code
 		want int
 	}{
+		{codes.Canceled, http.StatusRequestTimeout},
+		{codes.DeadlineExceeded, http.StatusGatewayTimeout},
 		{codes.NotFound, http.StatusNotFound},
 		{codes.AlreadyExists, http.StatusConflict},
 		{codes.InvalidArgument, http.StatusBadRequest},
+		{codes.OutOfRange, http.StatusBadRequest},
 		{codes.Unauthenticated, http.StatusUnauthorized},
 		{codes.PermissionDenied, http.StatusForbidden},
+		{codes.ResourceExhausted, http.StatusTooManyRequests},
+		{codes.Unimplemented, http.StatusNotImplemented},
 		{codes.Unavailable, http.StatusServiceUnavailable},
 	}
 	for _, tt := range tests {

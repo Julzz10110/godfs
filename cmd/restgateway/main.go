@@ -53,7 +53,9 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	srv.Register(mux)
-	handler := restgateway.WithHTTPMetrics(mux)
+	handler := restgateway.WithCORS(mux)
+	handler = restgateway.WithRateLimit(handler)
+	handler = restgateway.WithHTTPMetrics(handler)
 	handler = otelhttp.NewHandler(handler, "godfs.restgateway")
 
 	log.Printf("goDFS REST gateway listening on %s (master gRPC %s)", listen, master)

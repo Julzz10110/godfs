@@ -261,6 +261,38 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 		t.Fatalf("if-range mismatch status=%d body=%q", ifRangeBadResp.StatusCode, string(b))
 	}
 
+	// Conditional GET: If-None-Match should return 304.
+	condReq, _ := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	condReq.Header.Set("If-None-Match", etag)
+	condResp, err := http.DefaultClient.Do(condReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer condResp.Body.Close()
+	if condResp.StatusCode != http.StatusNotModified {
+		b, _ := io.ReadAll(condResp.Body)
+		t.Fatalf("if-none-match status=%d body=%q", condResp.StatusCode, string(b))
+	}
+
+	// HEAD should return validators and no body.
+	headOnlyReq, _ := http.NewRequestWithContext(ctx, "HEAD", httpSrv.URL+"/v1/fs/content?path=/rg/a.bin", nil)
+	headOnlyResp, err := http.DefaultClient.Do(headOnlyReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer headOnlyResp.Body.Close()
+	if headOnlyResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(headOnlyResp.Body)
+		t.Fatalf("head status=%d body=%q", headOnlyResp.StatusCode, string(b))
+	}
+	if strings.TrimSpace(headOnlyResp.Header.Get("ETag")) == "" {
+		t.Fatal("head missing ETag")
+	}
+	hb, _ := io.ReadAll(headOnlyResp.Body)
+	if len(hb) != 0 {
+		t.Fatalf("head body len=%d", len(hb))
+	}
+
 	// Snapshots smoke.
 	snapB := mustOK(doJSON("POST", "/v1/snapshots", map[string]string{"label": "e2e"}))
 	var snapResp struct {
@@ -337,6 +369,111 @@ func TestE2E_RESTGateway_MaxBody_413(t *testing.T) {
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		rb, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status=%d body=%q", resp.StatusCode, string(rb))
+	}
+}
+
+func TestE2E_RESTGateway_CORS_Preflight(t *testing.T) {
+	t.Setenv("GODFS_REST_CORS_ALLOW_ORIGINS", "http://example.com")
+
+	const chunkSize = 256 * 1024
+	_, cl := e2e.StartMaster(t, chunkSize, 1)
+	dir := t.TempDir()
+	cl.AddChunkServer(t, "chunk-a", filepath.Join(dir, "c0"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gwCli, err := client.NewGateway(cl.MasterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gwCli.Close()
+
+	srv := &restgateway.Server{Client: gwCli, MaxBody: 10 << 20}
+	mux := http.NewServeMux()
+	srv.Register(mux)
+	handler := restgateway.WithCORS(mux)
+	httpSrv := httptest.NewServer(handler)
+	defer httpSrv.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "OPTIONS", httpSrv.URL+"/v1/fs/content?path=/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(b))
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
+		t.Fatalf("allow-origin=%q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got == "" {
+		t.Fatal("missing allow-methods")
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); got == "" {
+		t.Fatal("missing allow-headers")
+	}
+}
+
+func TestE2E_RESTGateway_RateLimit_429(t *testing.T) {
+	// Allow only 1 request immediately (burst=1) and no refill (rps very small).
+	t.Setenv("GODFS_REST_RATE_LIMIT_RPS", "0.0001")
+	t.Setenv("GODFS_REST_RATE_LIMIT_BURST", "1")
+
+	const chunkSize = 256 * 1024
+	_, cl := e2e.StartMaster(t, chunkSize, 1)
+	dir := t.TempDir()
+	cl.AddChunkServer(t, "chunk-a", filepath.Join(dir, "c0"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gwCli, err := client.NewGateway(cl.MasterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gwCli.Close()
+
+	srv := &restgateway.Server{Client: gwCli, MaxBody: 10 << 20}
+	mux := http.NewServeMux()
+	srv.Register(mux)
+	handler := restgateway.WithRateLimit(mux)
+	httpSrv := httptest.NewServer(handler)
+	defer httpSrv.Close()
+
+	// Two quick requests with the same Authorization should hit the same bucket.
+	auth := "Bearer test-token"
+	do := func() *http.Response {
+		req, err := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", auth)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	r1 := do()
+	_ = r1.Body.Close()
+	if r1.StatusCode != http.StatusOK {
+		t.Fatalf("first status=%d", r1.StatusCode)
+	}
+
+	r2 := do()
+	defer r2.Body.Close()
+	if r2.StatusCode != http.StatusTooManyRequests {
+		b, _ := io.ReadAll(r2.Body)
+		t.Fatalf("second status=%d body=%q", r2.StatusCode, string(b))
 	}
 }
 

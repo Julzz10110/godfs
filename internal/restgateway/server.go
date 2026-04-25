@@ -46,6 +46,7 @@ type Server struct {
 
 type errJSON struct {
 	Error      string `json:"error"`
+	Code       string `json:"code,omitempty"`
 	GRPCCode   string `json:"grpc_code,omitempty"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 }
@@ -68,6 +69,7 @@ func writeErr(w http.ResponseWriter, err error) {
 	}
 	if s, ok := status.FromError(err); ok {
 		out.GRPCCode = s.Code().String()
+		out.Code = grpcCodeToRESTCode(s.Code().String())
 	}
 	writeJSON(w, st, out)
 }
@@ -89,6 +91,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/fs", s.handleDelete)
 	mux.HandleFunc("POST /v1/fs/rename", s.handleRename)
 	mux.HandleFunc("GET /v1/fs/content", s.handleGetContent)
+	mux.HandleFunc("HEAD /v1/fs/content", s.handleHeadContent)
 	mux.HandleFunc("PUT /v1/fs/content", s.handlePutContent)
 
 	mux.HandleFunc("POST /v1/snapshots", s.handleCreateSnapshot)
@@ -236,6 +239,14 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
+	s.handleGetOrHeadContent(w, r, false)
+}
+
+func (s *Server) handleHeadContent(w http.ResponseWriter, r *http.Request) {
+	s.handleGetOrHeadContent(w, r, true)
+}
+
+func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, headOnly bool) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
@@ -246,22 +257,28 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 
+	// Stat first to attach validators and support conditional requests without reading body.
+	st, err := s.Client.Stat(ctx, p)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if st.IsDir {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "is directory"})
+		return
+	}
+	etag := contentETag(st)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Last-Modified", st.ModTime.UTC().Format(http.TimeFormat))
+
+	// Conditional requests (RFC 9110): If-None-Match / If-Modified-Since => 304 for GET/HEAD.
+	if isNotModified(r, etag, st.ModTime) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	// Optional Range support (single + multi-range).
 	if rh := strings.TrimSpace(r.Header.Get("Range")); rh != "" {
-		st, err := s.Client.Stat(ctx, p)
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		if st.IsDir {
-			writeJSON(w, http.StatusBadRequest, errJSON{Error: "is directory"})
-			return
-		}
-
-		etag := contentETag(st)
-		w.Header().Set("ETag", etag)
-		w.Header().Set("Last-Modified", st.ModTime.UTC().Format(http.TimeFormat))
-
 		// If-Range: if it doesn't match current validator, ignore Range and return full response.
 		if ir := strings.TrimSpace(r.Header.Get("If-Range")); ir != "" && !ifRangeMatches(ir, etag, st.ModTime) {
 			rh = ""
@@ -287,7 +304,9 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(st.Size, 10))
 				w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
 				w.WriteHeader(http.StatusPartialContent)
-				_, _ = w.Write(data)
+				if !headOnly {
+					_, _ = w.Write(data)
+				}
 				return
 			}
 
@@ -295,6 +314,9 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 			boundary := "godfs-" + strconv.FormatUint(rand.Uint64(), 16)
 			w.Header().Set("Content-Type", `multipart/byteranges; boundary=`+boundary)
 			w.WriteHeader(http.StatusPartialContent)
+			if headOnly {
+				return
+			}
 			for _, rg := range ranges {
 				if err := writeMultipartRangePart(w, boundary, st.Size, rg.start, rg.end); err != nil {
 					// best-effort; connection likely broken
@@ -317,15 +339,16 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Full-body response (no Range, or If-Range mismatch).
+	if headOnly {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.FormatInt(st.Size, 10))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	data, err := s.Client.Read(ctx, p)
 	if err != nil {
 		writeErr(w, err)
 		return
-	}
-	// Best-effort validators.
-	if st, err := s.Client.Stat(ctx, p); err == nil && st != nil && !st.IsDir {
-		w.Header().Set("ETag", contentETag(st))
-		w.Header().Set("Last-Modified", st.ModTime.UTC().Format(http.TimeFormat))
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -579,4 +602,46 @@ func writeMultipartRangePart(w io.Writer, boundary string, size, start, end int6
 		"Content-Range: bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(size, 10)+"\r\n"+
 		"\r\n")
 	return err
+}
+
+func isNotModified(r *http.Request, etag string, modTime time.Time) bool {
+	if inm := strings.TrimSpace(r.Header.Get("If-None-Match")); inm != "" {
+		if ifNoneMatchMatches(inm, etag) {
+			return true
+		}
+	}
+	if ims := strings.TrimSpace(r.Header.Get("If-Modified-Since")); ims != "" {
+		if t, err := http.ParseTime(ims); err == nil {
+			// Not modified since date => 304.
+			if !modTime.After(t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ifNoneMatchMatches(headerVal, etag string) bool {
+	v := strings.TrimSpace(headerVal)
+	if v == "" {
+		return false
+	}
+	if v == "*" {
+		return true
+	}
+	// Comma-separated list of ETags.
+	for _, part := range strings.Split(v, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if strings.EqualFold(p, etag) {
+			return true
+		}
+		// Weak comparison: allow If-None-Match: W/"..."
+		if strings.HasPrefix(strings.ToLower(p), "w/") && strings.EqualFold(strings.TrimSpace(p[2:]), etag) {
+			return true
+		}
+	}
+	return false
 }
