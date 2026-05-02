@@ -62,7 +62,8 @@ func (m *masterInterceptors) unary(ctx context.Context, req interface{}, info *g
 		if i := strings.LastIndexByte(short, '/'); i >= 0 {
 			short = short[i+1:]
 		}
-		m.Audit.LogMaster(principal, short, path, oldPath, newPath, err == nil, errMsg)
+		rid := security.RequestIDFromIncomingContext(ctx)
+		m.Audit.LogMaster(principal, short, path, oldPath, newPath, err == nil, errMsg, rid)
 	}
 	return resp, err
 }
@@ -157,7 +158,8 @@ func NewChunkUnaryInterceptor(clusterKey string, audit *security.AuditLogger, ch
 			if err != nil {
 				errMsg = err.Error()
 			}
-			audit.LogChunk(pr, methodShort(info.FullMethod), chunkUnaryChunkID(info.FullMethod, req), false, err == nil, errMsg)
+			rid := security.RequestIDFromIncomingContext(ctx)
+			audit.LogChunk(pr, methodShort(info.FullMethod), chunkUnaryChunkID(info.FullMethod, req), false, err == nil, errMsg, rid)
 		}
 		return resp, err
 	}
@@ -179,7 +181,8 @@ func NewChunkStreamInterceptor(clusterKey string, audit *security.AuditLogger, c
 			if err != nil {
 				errMsg = err.Error()
 			}
-			audit.LogChunk(pr, methodShort(info.FullMethod), "", true, err == nil, errMsg)
+			rid := security.RequestIDFromIncomingContext(ss.Context())
+			audit.LogChunk(pr, methodShort(info.FullMethod), "", true, err == nil, errMsg, rid)
 		}
 		return err
 	}

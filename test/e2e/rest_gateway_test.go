@@ -309,6 +309,145 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	mustNoContent(doJSON("DELETE", "/v1/snapshots/"+snapResp.SnapshotID, nil))
 }
 
+func TestE2E_RESTGateway_MultipartUpload(t *testing.T) {
+	t.Setenv("GODFS_REST_MULTIPART_DIR", filepath.Join(t.TempDir(), "mp"))
+
+	const chunkSize = 256 * 1024
+	_, cl := e2e.StartMaster(t, chunkSize, 1)
+	dir := t.TempDir()
+	cl.AddChunkServer(t, "chunk-a", filepath.Join(dir, "c0"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gwCli, err := client.NewGateway(cl.MasterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gwCli.Close()
+
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
+	mux := http.NewServeMux()
+	srv.Register(mux)
+	httpSrv := httptest.NewServer(restgateway.WithRequestID(mux))
+	defer httpSrv.Close()
+
+	base := httpSrv.URL
+
+	mustNoContent := func(resp *http.Response) {
+		t.Helper()
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status=%d body=%q", resp.StatusCode, string(b))
+		}
+	}
+
+	mk := func(method, path string, body any) *http.Response {
+		t.Helper()
+		var r io.Reader
+		if body != nil {
+			b, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r = bytes.NewReader(b)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, base+path, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	mustNoContent(mk("POST", "/v1/fs/mkdir", map[string]string{"path": "/mu"}))
+
+	initReq := mustReq(t, ctx, "POST", base+"/v1/fs/multipart", `{"path":"/mu/mp.bin"}`, "application/json")
+	initResp, err := http.DefaultClient.Do(initReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer initResp.Body.Close()
+	initBody, _ := io.ReadAll(initResp.Body)
+	if initResp.StatusCode != http.StatusOK {
+		t.Fatalf("multipart init status=%d body=%s", initResp.StatusCode, initBody)
+	}
+	var initOut struct {
+		UploadID string `json:"upload_id"`
+		Path     string `json:"path"`
+	}
+	if err := json.Unmarshal(initBody, &initOut); err != nil {
+		t.Fatalf("init json: %v", err)
+	}
+	if initOut.UploadID == "" {
+		t.Fatal("missing upload_id")
+	}
+	uid := initOut.UploadID
+
+	put := func(part int, data string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, "PUT", base+"/v1/fs/multipart/"+uid+"?partNumber="+strconv.Itoa(part), strings.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("put part %d status=%d body=%q", part, resp.StatusCode, string(b))
+		}
+	}
+	put(1, "hello ")
+	put(2, "world")
+
+	compReq := mustReq(t, ctx, "POST", base+"/v1/fs/multipart/"+uid+"/complete", `{"parts":[{"part_number":1},{"part_number":2}]}`, "application/json")
+	compResp, err := http.DefaultClient.Do(compReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer compResp.Body.Close()
+	if compResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(compResp.Body)
+		t.Fatalf("complete status=%d body=%q", compResp.StatusCode, string(b))
+	}
+
+	getReq, _ := http.NewRequestWithContext(ctx, "GET", base+"/v1/fs/content?path=/mu/mp.bin", nil)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	got, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get status=%d body=%q", getResp.StatusCode, got)
+	}
+	if string(got) != "hello world" {
+		t.Fatalf("content=%q want hello world", string(got))
+	}
+}
+
+func mustReq(t *testing.T, ctx context.Context, method, url, body, ct string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	return req
+}
+
 func TestE2E_RESTGateway_MaxUpload_413(t *testing.T) {
 	const chunkSize = 256 * 1024
 	_, cl := e2e.StartMaster(t, chunkSize, 1)

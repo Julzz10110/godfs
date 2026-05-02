@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/status"
@@ -50,6 +51,16 @@ type Server struct {
 	MaxUpload int64
 	// StreamSegment is max bytes per internal read when streaming GET / Range bodies. Zero means [DefaultGetStreamBytes].
 	StreamSegment int64
+
+	mpOnce sync.Once
+	mpart  *multipartManager
+}
+
+func (s *Server) multipart() *multipartManager {
+	s.mpOnce.Do(func() {
+		s.mpart = newMultipartManager(DefaultMultipartDataDir())
+	})
+	return s.mpart
 }
 
 func (s *Server) putUploadLimit() int64 {
@@ -147,6 +158,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("HEAD /v1/fs/content", s.handleHeadContent)
 	mux.HandleFunc("PUT /v1/fs/content", s.handlePutContent)
 
+	mux.HandleFunc("POST /v1/fs/multipart", s.handleMultipartInit)
+	mux.HandleFunc("PUT /v1/fs/multipart/{uploadId}", s.handleMultipartUploadPart)
+	mux.HandleFunc("POST /v1/fs/multipart/{uploadId}/complete", s.handleMultipartComplete)
+	mux.HandleFunc("DELETE /v1/fs/multipart/{uploadId}", s.handleMultipartAbort)
+
 	mux.HandleFunc("POST /v1/snapshots", s.handleCreateSnapshot)
 	mux.HandleFunc("GET /v1/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("GET /v1/snapshots/{id}", s.handleGetSnapshot)
@@ -158,7 +174,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -182,7 +198,7 @@ func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -216,7 +232,7 @@ type renameBody struct {
 }
 
 func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	var b pathBody
 	if !decodeJSONBody(w, r, &b) {
 		return
@@ -235,7 +251,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	var b pathBody
 	if !decodeJSONBody(w, r, &b) {
 		return
@@ -254,7 +270,7 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -270,7 +286,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	var b renameBody
 	if !decodeJSONBody(w, r, &b) {
 		return
@@ -297,7 +313,7 @@ func (s *Server) handleHeadContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, headOnly bool) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -400,7 +416,7 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -433,7 +449,7 @@ type createSnapshotBody struct {
 }
 
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	var b createSnapshotBody
 	if !decodeJSONBody(w, r, &b) {
 		return
@@ -450,7 +466,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	entries, err := s.Client.ListSnapshots(ctx)
 	if err != nil {
 		writeHTTPError(w, r, err)
@@ -469,7 +485,7 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "missing snapshot id"})
@@ -491,7 +507,7 @@ func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
-	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
+	ctx := OutgoingRPCContext(r)
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "missing snapshot id"})

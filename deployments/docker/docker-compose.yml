@@ -9,6 +9,7 @@ services:
     environment:
       GODFS_MASTER_LISTEN: "0.0.0.0:9090"
       GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+      GODFS_REPLICATION: "1"
 
   chunk:
     build:
@@ -27,6 +28,21 @@ services:
       - chunkdata:/var/lib/godfs
     depends_on:
       - master
+
+  rest:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.restgateway
+    ports:
+      - "8080:8080"
+    environment:
+      GODFS_MASTER: "master:9090"
+      GODFS_CHUNK_SIZE_BYTES: "67108864"
+      GODFS_REST_LISTEN: "0.0.0.0:8080"
+      GODFS_REST_READ_TIMEOUT: "0"
+      GODFS_REST_WRITE_TIMEOUT: "0"
+    depends_on:
+      - chunk
 
 volumes:
   chunkdata: {}

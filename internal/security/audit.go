@@ -60,12 +60,13 @@ type Event struct {
 	NewPath    string `json:"new_path,omitempty"`
 	ChunkID    string `json:"chunk_id,omitempty"`
 	Streaming  bool   `json:"streaming,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
 	OK         bool   `json:"ok"`
 	Err        string `json:"err,omitempty"`
 }
 
 // LogMaster records a master RPC outcome.
-func (a *AuditLogger) LogMaster(principal, method, path, oldPath, newPath string, ok bool, errMsg string) {
+func (a *AuditLogger) LogMaster(principal, method, path, oldPath, newPath string, ok bool, errMsg, requestID string) {
 	if a == nil || !a.enabled {
 		return
 	}
@@ -77,6 +78,7 @@ func (a *AuditLogger) LogMaster(principal, method, path, oldPath, newPath string
 		Path:      path,
 		OldPath:   oldPath,
 		NewPath:   newPath,
+		RequestID: requestID,
 		OK:        ok,
 		Err:       errMsg,
 	}
@@ -88,7 +90,7 @@ func (a *AuditLogger) LogMaster(principal, method, path, oldPath, newPath string
 }
 
 // LogChunk records a ChunkService RPC outcome (principal is usually "cluster" when using GODFS_CLUSTER_KEY).
-func (a *AuditLogger) LogChunk(principal, method, chunkID string, streaming bool, ok bool, errMsg string) {
+func (a *AuditLogger) LogChunk(principal, method, chunkID string, streaming bool, ok bool, errMsg, requestID string) {
 	if a == nil || !a.enabled {
 		return
 	}
@@ -99,6 +101,7 @@ func (a *AuditLogger) LogChunk(principal, method, chunkID string, streaming bool
 		Method:    method,
 		ChunkID:   chunkID,
 		Streaming: streaming,
+		RequestID: requestID,
 		OK:        ok,
 		Err:       errMsg,
 	}

@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-func TestHTTPServerTimeoutsFromEnv_defaults(t *testing.T) {
+func TestHTTPServerTimeoutsFromEnv_explicit(t *testing.T) {
 	t.Setenv("GODFS_REST_READ_HEADER_TIMEOUT", "")
-	t.Setenv("GODFS_REST_READ_TIMEOUT", "")
-	t.Setenv("GODFS_REST_WRITE_TIMEOUT", "")
+	t.Setenv("GODFS_REST_READ_TIMEOUT", "2m")
+	t.Setenv("GODFS_REST_WRITE_TIMEOUT", "3m")
 	t.Setenv("GODFS_REST_IDLE_TIMEOUT", "")
 
 	s := &http.Server{}
@@ -17,11 +17,22 @@ func TestHTTPServerTimeoutsFromEnv_defaults(t *testing.T) {
 	if s.ReadHeaderTimeout != 10*time.Second {
 		t.Fatalf("ReadHeaderTimeout=%v", s.ReadHeaderTimeout)
 	}
-	if s.ReadTimeout != 0 || s.WriteTimeout != 0 {
+	if s.ReadTimeout != 2*time.Minute || s.WriteTimeout != 3*time.Minute {
 		t.Fatalf("ReadTimeout=%v WriteTimeout=%v", s.ReadTimeout, s.WriteTimeout)
 	}
 	if s.IdleTimeout != 120*time.Second {
 		t.Fatalf("IdleTimeout=%v", s.IdleTimeout)
+	}
+}
+
+func TestHTTPServerTimeoutsFromEnv_disableReadWrite(t *testing.T) {
+	t.Setenv("GODFS_REST_READ_TIMEOUT", "0")
+	t.Setenv("GODFS_REST_WRITE_TIMEOUT", "off")
+
+	s := &http.Server{}
+	HTTPServerTimeoutsFromEnv(s)
+	if s.ReadTimeout != 0 || s.WriteTimeout != 0 {
+		t.Fatalf("ReadTimeout=%v WriteTimeout=%v", s.ReadTimeout, s.WriteTimeout)
 	}
 }
 
