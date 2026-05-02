@@ -14,8 +14,8 @@ func TestWithHTTPMetrics_DoesNotPanicAndServes(t *testing.T) {
 	})
 
 	h := WithHTTPMetrics(mux)
-	// Wrap twice to ensure registration/path is stable.
-	h = WithHTTPMetrics(h)
+	// Second ensure is a no-op (metricsOnce); wrapping twice would double-count response bytes.
+	ensureHTTPMetricsRegistered()
 
 	req := httptest.NewRequest("GET", "http://example/v1/health", nil)
 	rr := httptest.NewRecorder()

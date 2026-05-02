@@ -29,6 +29,7 @@ type gatewayClient interface {
 	List(ctx context.Context, path string) ([]*godfsv1.DirEntry, error)
 	Read(ctx context.Context, path string) ([]byte, error)
 	ReadRange(ctx context.Context, path string, offset, length int64) ([]byte, error)
+	StreamRangeToWriter(ctx context.Context, path string, offset, length, segment int64, w io.Writer) (written int64, err error)
 	Write(ctx context.Context, path string, data []byte) error
 	WriteFromReader(ctx context.Context, path string, r io.Reader) error
 
@@ -47,6 +48,8 @@ type Server struct {
 	// MaxUpload caps total bytes read for PUT /v1/fs/content (via MaxBytesReader). Zero means use [DefaultMaxUploadBytes].
 	// [NoMaxUploadLimit] disables the cap.
 	MaxUpload int64
+	// StreamSegment is max bytes per internal read when streaming GET / Range bodies. Zero means [DefaultGetStreamBytes].
+	StreamSegment int64
 }
 
 func (s *Server) putUploadLimit() int64 {
@@ -59,11 +62,19 @@ func (s *Server) putUploadLimit() int64 {
 	return DefaultMaxUploadBytes()
 }
 
+func (s *Server) streamSegment() int64 {
+	if s.StreamSegment > 0 {
+		return s.StreamSegment
+	}
+	return DefaultGetStreamBytes()
+}
+
 type errJSON struct {
 	Error      string `json:"error"`
 	Code       string `json:"code,omitempty"`
 	GRPCCode   string `json:"grpc_code,omitempty"`
 	HTTPStatus int    `json:"http_status,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -72,7 +83,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeErr(w http.ResponseWriter, err error) {
+func writeHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 	st := statusFromGRPC(err)
 	msg := err.Error()
 	if st == http.StatusInternalServerError {
@@ -86,7 +97,34 @@ func writeErr(w http.ResponseWriter, err error) {
 		out.GRPCCode = s.Code().String()
 		out.Code = grpcCodeToRESTCode(s.Code().String())
 	}
+	if id := RequestIDFromContext(r.Context()); id != "" {
+		out.RequestID = id
+	}
 	writeJSON(w, st, out)
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+	max := DefaultMaxJSONBodyBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, max+1)
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(dst); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			out := errJSON{Error: "json body too large", HTTPStatus: http.StatusRequestEntityTooLarge}
+			if id := RequestIDFromContext(r.Context()); id != "" {
+				out.RequestID = id
+			}
+			writeJSON(w, http.StatusRequestEntityTooLarge, out)
+			return false
+		}
+		out := errJSON{Error: "invalid json", HTTPStatus: http.StatusBadRequest}
+		if id := RequestIDFromContext(r.Context()); id != "" {
+			out.RequestID = id
+		}
+		writeJSON(w, http.StatusBadRequest, out)
+		return false
+	}
+	return true
 }
 
 func requirePath(q string) (string, bool) {
@@ -130,7 +168,7 @@ func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := s.Client.Stat(ctx, p)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -154,7 +192,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := s.Client.List(ctx, p)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	out := make([]map[string]interface{}, 0, len(entries))
@@ -180,8 +218,7 @@ type renameBody struct {
 func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	var b pathBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid json"})
+	if !decodeJSONBody(w, r, &b) {
 		return
 	}
 	if okPath, ok := requirePath(b.Path); !ok {
@@ -191,7 +228,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		b.Path = okPath
 	}
 	if err := s.Client.Mkdir(ctx, b.Path); err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -200,8 +237,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	var b pathBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid json"})
+	if !decodeJSONBody(w, r, &b) {
 		return
 	}
 	if okPath, ok := requirePath(b.Path); !ok {
@@ -211,7 +247,7 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
 		b.Path = okPath
 	}
 	if err := s.Client.Create(ctx, b.Path); err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -227,7 +263,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		p = okPath
 	}
 	if err := s.Client.Delete(ctx, p); err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -236,8 +272,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	var b renameBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid json"})
+	if !decodeJSONBody(w, r, &b) {
 		return
 	}
 	o, ok1 := requirePath(b.OldPath)
@@ -247,7 +282,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Client.Rename(ctx, o, n); err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -275,7 +310,7 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 	// Stat first to attach validators and support conditional requests without reading body.
 	st, err := s.Client.Stat(ctx, p)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	if st.IsDir {
@@ -307,20 +342,18 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 				return
 			}
 
-			// Single-range fast path.
+			// Single-range fast path (streamed; bounded by StreamSegment memory per read).
 			if len(ranges) == 1 {
 				start, end := ranges[0].start, ranges[0].end
-				data, err := s.Client.ReadRange(ctx, p, start, end-start)
-				if err != nil {
-					writeErr(w, err)
-					return
-				}
+				ln := end - start
 				w.Header().Set("Content-Type", "application/octet-stream")
 				w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end-1, 10)+"/"+strconv.FormatInt(st.Size, 10))
-				w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
+				w.Header().Set("Content-Length", strconv.FormatInt(ln, 10))
 				w.WriteHeader(http.StatusPartialContent)
 				if !headOnly {
-					_, _ = w.Write(data)
+					if _, err := s.Client.StreamRangeToWriter(ctx, p, start, ln, s.streamSegment(), w); err != nil {
+						return
+					}
 				}
 				return
 			}
@@ -337,11 +370,7 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 					// best-effort; connection likely broken
 					return
 				}
-				data, err := s.Client.ReadRange(ctx, p, rg.start, rg.end-rg.start)
-				if err != nil {
-					return
-				}
-				if _, err := w.Write(data); err != nil {
+				if _, err := s.Client.StreamRangeToWriter(ctx, p, rg.start, rg.end-rg.start, s.streamSegment(), w); err != nil {
 					return
 				}
 				if _, err := w.Write([]byte("\r\n")); err != nil {
@@ -353,22 +382,21 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	// Full-body response (no Range, or If-Range mismatch).
+	// Full-body response (no Range, or If-Range mismatch) — streamed without buffering whole file.
 	if headOnly {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.FormatInt(st.Size, 10))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	data, err := s.Client.Read(ctx, p)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Content-Length", strconv.FormatInt(st.Size, 10))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	if st.Size > 0 {
+		if _, err := s.Client.StreamRangeToWriter(ctx, p, 0, st.Size, s.streamSegment(), w); err != nil {
+			return
+		}
+	}
 }
 
 func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
@@ -387,10 +415,14 @@ func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
 	if err := s.Client.WriteFromReader(ctx, p, r.Body); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeJSON(w, http.StatusRequestEntityTooLarge, errJSON{Error: "body too large"})
+			out := errJSON{Error: "body too large", HTTPStatus: http.StatusRequestEntityTooLarge}
+			if id := RequestIDFromContext(r.Context()); id != "" {
+				out.RequestID = id
+			}
+			writeJSON(w, http.StatusRequestEntityTooLarge, out)
 			return
 		}
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -403,18 +435,17 @@ type createSnapshotBody struct {
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	var b createSnapshotBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid json"})
+	if !decodeJSONBody(w, r, &b) {
 		return
 	}
 	id, ts, err := s.Client.CreateSnapshot(ctx, b.Label)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"snapshot_id":      id,
-		"created_at_unix":  ts,
+		"snapshot_id":     id,
+		"created_at_unix": ts,
 	})
 }
 
@@ -422,7 +453,7 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	ctx := WithBearerAuth(r.Context(), r.Header.Get("Authorization"))
 	entries, err := s.Client.ListSnapshots(ctx)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	out := make([]map[string]interface{}, 0, len(entries))
@@ -446,7 +477,7 @@ func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	manifest, err := s.Client.GetSnapshot(ctx, id)
 	if err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	b, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(manifest)
@@ -467,7 +498,7 @@ func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Client.DeleteSnapshot(ctx, id); err != nil {
-		writeErr(w, err)
+		writeHTTPError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

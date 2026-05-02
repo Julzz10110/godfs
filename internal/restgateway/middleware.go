@@ -163,11 +163,15 @@ func WithRateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := rateLimitKey(r)
 		if !rl.get(key).Allow() {
-			writeJSON(w, http.StatusTooManyRequests, errJSON{
+			out := errJSON{
 				Error:      "rate limit exceeded",
 				Code:       "rate_limited",
 				HTTPStatus: http.StatusTooManyRequests,
-			})
+			}
+			if id := RequestIDFromContext(r.Context()); id != "" {
+				out.RequestID = id
+			}
+			writeJSON(w, http.StatusTooManyRequests, out)
 			return
 		}
 		next.ServeHTTP(w, r)

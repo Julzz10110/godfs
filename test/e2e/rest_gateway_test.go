@@ -37,7 +37,7 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
-	httpSrv := httptest.NewServer(mux)
+	httpSrv := httptest.NewServer(restgateway.WithRequestID(mux))
 	defer httpSrv.Close()
 
 	doJSON := func(method, path string, body any) *http.Response {
@@ -327,7 +327,7 @@ func TestE2E_RESTGateway_MaxUpload_413(t *testing.T) {
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 1024}
 	mux := http.NewServeMux()
 	srv.Register(mux)
-	httpSrv := httptest.NewServer(mux)
+	httpSrv := httptest.NewServer(restgateway.WithRequestID(mux))
 	defer httpSrv.Close()
 
 	reqJSON := func(method, path string, body any) {
@@ -392,7 +392,7 @@ func TestE2E_RESTGateway_CORS_Preflight(t *testing.T) {
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
-	handler := restgateway.WithCORS(mux)
+	handler := restgateway.WithCORS(restgateway.WithRequestID(mux))
 	httpSrv := httptest.NewServer(handler)
 	defer httpSrv.Close()
 
@@ -444,7 +444,7 @@ func TestE2E_RESTGateway_RateLimit_429(t *testing.T) {
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
-	handler := restgateway.WithRateLimit(mux)
+	handler := restgateway.WithRateLimit(restgateway.WithRequestID(mux))
 	httpSrv := httptest.NewServer(handler)
 	defer httpSrv.Close()
 
