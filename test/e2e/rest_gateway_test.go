@@ -34,7 +34,7 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	}
 	defer gwCli.Close()
 
-	srv := &restgateway.Server{Client: gwCli, MaxBody: 10 << 20}
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
 	httpSrv := httptest.NewServer(mux)
@@ -309,7 +309,7 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	mustNoContent(doJSON("DELETE", "/v1/snapshots/"+snapResp.SnapshotID, nil))
 }
 
-func TestE2E_RESTGateway_MaxBody_413(t *testing.T) {
+func TestE2E_RESTGateway_MaxUpload_413(t *testing.T) {
 	const chunkSize = 256 * 1024
 	_, cl := e2e.StartMaster(t, chunkSize, 1)
 	dir := t.TempDir()
@@ -324,7 +324,7 @@ func TestE2E_RESTGateway_MaxBody_413(t *testing.T) {
 	}
 	defer gwCli.Close()
 
-	srv := &restgateway.Server{Client: gwCli, MaxBody: 1024}
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 1024}
 	mux := http.NewServeMux()
 	srv.Register(mux)
 	httpSrv := httptest.NewServer(mux)
@@ -389,7 +389,7 @@ func TestE2E_RESTGateway_CORS_Preflight(t *testing.T) {
 	}
 	defer gwCli.Close()
 
-	srv := &restgateway.Server{Client: gwCli, MaxBody: 10 << 20}
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
 	handler := restgateway.WithCORS(mux)
@@ -441,7 +441,7 @@ func TestE2E_RESTGateway_RateLimit_429(t *testing.T) {
 	}
 	defer gwCli.Close()
 
-	srv := &restgateway.Server{Client: gwCli, MaxBody: 10 << 20}
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
 	srv.Register(mux)
 	handler := restgateway.WithRateLimit(mux)

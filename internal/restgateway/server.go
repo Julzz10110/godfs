@@ -38,10 +38,25 @@ type gatewayClient interface {
 	DeleteSnapshot(ctx context.Context, snapshotID string) error
 }
 
+// NoMaxUploadLimit disables the byte cap on PUT /v1/fs/content (streaming; client buffers at most one chunk).
+const NoMaxUploadLimit int64 = -1
+
 // Server exposes a minimal REST mapping over pkg/client.
 type Server struct {
-	Client  gatewayClient
-	MaxBody int64
+	Client gatewayClient
+	// MaxUpload caps total bytes read for PUT /v1/fs/content (via MaxBytesReader). Zero means use [DefaultMaxUploadBytes].
+	// [NoMaxUploadLimit] disables the cap.
+	MaxUpload int64
+}
+
+func (s *Server) putUploadLimit() int64 {
+	if s.MaxUpload == NoMaxUploadLimit {
+		return 0
+	}
+	if s.MaxUpload > 0 {
+		return s.MaxUpload
+	}
+	return DefaultMaxUploadBytes()
 }
 
 type errJSON struct {
@@ -365,11 +380,10 @@ func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p = okPath
 	}
-	max := s.MaxBody
-	if max <= 0 {
-		max = 80 << 20
+	max := s.putUploadLimit()
+	if max > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, max+1)
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, max+1)
 	if err := s.Client.WriteFromReader(ctx, p, r.Body); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
@@ -459,7 +473,8 @@ func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// DefaultMaxBodyBytes returns the limit for PUT bodies from GODFS_REST_MAX_BODY_BYTES or default 80 MiB.
+// DefaultMaxBodyBytes returns the limit for small JSON bodies from GODFS_REST_MAX_BODY_BYTES or default 80 MiB.
+// PUT /v1/fs/content uses [DefaultMaxUploadBytes] unless [Server.MaxUpload] overrides.
 func DefaultMaxBodyBytes() int64 {
 	const def = 80 << 20
 	s := strings.TrimSpace(os.Getenv("GODFS_REST_MAX_BODY_BYTES"))
@@ -469,6 +484,28 @@ func DefaultMaxBodyBytes() int64 {
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || n <= 0 {
 		return def
+	}
+	return n
+}
+
+// DefaultMaxUploadBytes caps total bytes read for PUT /v1/fs/content.
+// If GODFS_REST_MAX_UPLOAD_BYTES is not set, falls back to [DefaultMaxBodyBytes] (backward compatible).
+// If set to 0 or a negative number, returns 0 (no cap — streaming; memory bounded by one chunk in pkg/client).
+func DefaultMaxUploadBytes() int64 {
+	v, ok := os.LookupEnv("GODFS_REST_MAX_UPLOAD_BYTES")
+	if !ok {
+		return DefaultMaxBodyBytes()
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return DefaultMaxBodyBytes()
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return DefaultMaxBodyBytes()
+	}
+	if n <= 0 {
+		return 0
 	}
 	return n
 }

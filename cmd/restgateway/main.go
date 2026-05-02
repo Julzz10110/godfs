@@ -48,8 +48,8 @@ func main() {
 	defer cli.Close()
 
 	srv := &restgateway.Server{
-		Client:  cli,
-		MaxBody: restgateway.DefaultMaxBodyBytes(),
+		Client:    cli,
+		MaxUpload: 0, // use GODFS_REST_MAX_UPLOAD_BYTES / GODFS_REST_MAX_BODY_BYTES; see restgateway.DefaultMaxUploadBytes
 	}
 	mux := http.NewServeMux()
 	srv.Register(mux)
