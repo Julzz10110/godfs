@@ -22,6 +22,9 @@ jobs:
       - name: Test
         run: go test ./... -count=1 -timeout 15m
 
+      - name: Build FUSE (Linux)
+        run: go build -o /tmp/godfs-fuse ./cmd/fuse
+
   rest-compose:
     runs-on: ubuntu-latest
     steps:

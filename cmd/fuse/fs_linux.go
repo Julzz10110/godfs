@@ -18,8 +18,9 @@ import (
 type node struct {
 	fs.Inode
 
-	cli   *client.Client
-	cache *metaPathCache
+	cli        *client.Client
+	cache      *metaPathCache
+	rpcTimeout time.Duration
 
 	full  string
 	isDir bool
@@ -53,7 +54,9 @@ func (n *node) ensureMeta(ctx context.Context) syscall.Errno {
 			return 0
 		}
 	}
-	st, err := n.cli.Stat(ctx, n.full)
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	st, err := n.cli.Stat(cctx, n.full)
 	if err != nil {
 		errno := grpcToErrno(err)
 		if errno == syscall.ENOENT && n.cache != nil {
@@ -86,12 +89,22 @@ func (n *node) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) 
 	return 0
 }
 
+func (n *node) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+	if in.Valid&fuse.FATTR_SIZE != 0 {
+		return syscall.EOPNOTSUPP
+	}
+	if in.Valid&(fuse.FATTR_UID|fuse.FATTR_GID|fuse.FATTR_MODE|fuse.FATTR_KILL_SUIDGID) != 0 {
+		return syscall.EPERM
+	}
+	return n.Getattr(ctx, f, out)
+}
+
 func (n *node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	if name == "." || name == ".." || strings.Contains(name, "/") || name == "" {
 		return nil, syscall.ENOENT
 	}
 	full := path.Join(n.full, name)
-	child := &node{cli: n.cli, cache: n.cache, full: full}
+	child := &node{cli: n.cli, cache: n.cache, full: full, rpcTimeout: n.rpcTimeout}
 	if errno := child.ensureMeta(ctx); errno != 0 {
 		return nil, errno
 	}
@@ -117,7 +130,9 @@ func (n *node) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 			return fs.NewListDirStream(ents), 0
 		}
 	}
-	entries, err := n.cli.List(ctx, n.full)
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	entries, err := n.cli.List(cctx, n.full)
 	if err != nil {
 		return nil, grpcToErrno(err)
 	}
@@ -157,14 +172,16 @@ func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint3
 		return nil, nil, 0, syscall.EOPNOTSUPP
 	}
 	full := path.Join(n.full, name)
-	if err := n.cli.Create(ctx, full); err != nil {
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	if err := n.cli.Create(cctx, full); err != nil {
 		return nil, nil, 0, grpcToErrno(err)
 	}
 	if n.cache != nil {
 		n.cache.invalidateMutation(full)
 	}
-	child := &node{cli: n.cli, cache: n.cache, full: full}
-	if errno := child.ensureMeta(ctx); errno != 0 {
+	child := &node{cli: n.cli, cache: n.cache, full: full, rpcTimeout: n.rpcTimeout}
+	if errno := child.ensureMeta(cctx); errno != 0 {
 		child.isDir = false
 		child.mode = mode & 0777
 		child.size = 0
@@ -188,14 +205,16 @@ func (n *node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
 		return nil, syscall.EINVAL
 	}
 	full := path.Join(n.full, name)
-	if err := n.cli.Mkdir(ctx, full); err != nil {
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	if err := n.cli.Mkdir(cctx, full); err != nil {
 		return nil, grpcToErrno(err)
 	}
 	if n.cache != nil {
 		n.cache.invalidateMutation(full)
 	}
-	child := &node{cli: n.cli, cache: n.cache, full: full}
-	if errno := child.ensureMeta(ctx); errno != 0 {
+	child := &node{cli: n.cli, cache: n.cache, full: full, rpcTimeout: n.rpcTimeout}
+	if errno := child.ensureMeta(cctx); errno != 0 {
 		child.isDir = true
 		child.mode = mode & 0777
 		child.size = 0
@@ -218,14 +237,16 @@ func (n *node) Unlink(ctx context.Context, name string) syscall.Errno {
 		return syscall.EINVAL
 	}
 	full := path.Join(n.full, name)
-	st, err := n.cli.Stat(ctx, full)
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	st, err := n.cli.Stat(cctx, full)
 	if err != nil {
 		return grpcToErrno(err)
 	}
 	if st.IsDir {
 		return syscall.EISDIR
 	}
-	if err := n.cli.Delete(ctx, full); err != nil {
+	if err := n.cli.Delete(cctx, full); err != nil {
 		return grpcToErrno(err)
 	}
 	if n.cache != nil {
@@ -239,21 +260,23 @@ func (n *node) Rmdir(ctx context.Context, name string) syscall.Errno {
 		return syscall.EINVAL
 	}
 	full := path.Join(n.full, name)
-	st, err := n.cli.Stat(ctx, full)
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	st, err := n.cli.Stat(cctx, full)
 	if err != nil {
 		return grpcToErrno(err)
 	}
 	if !st.IsDir {
 		return syscall.ENOTDIR
 	}
-	ents, err := n.cli.List(ctx, full)
+	ents, err := n.cli.List(cctx, full)
 	if err != nil {
 		return grpcToErrno(err)
 	}
 	if len(ents) > 0 {
 		return syscall.ENOTEMPTY
 	}
-	if err := n.cli.Delete(ctx, full); err != nil {
+	if err := n.cli.Delete(cctx, full); err != nil {
 		return grpcToErrno(err)
 	}
 	if n.cache != nil {
@@ -275,7 +298,9 @@ func (n *node) Rename(ctx context.Context, name string, newParent fs.InodeEmbedd
 	}
 	oldFull := path.Join(n.full, name)
 	newFull := path.Join(np.full, newName)
-	if err := n.cli.Rename(ctx, oldFull, newFull); err != nil {
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	if err := n.cli.Rename(cctx, oldFull, newFull); err != nil {
 		return grpcToErrno(err)
 	}
 	if n.cache != nil {
@@ -308,7 +333,9 @@ func (f *fileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.Rea
 	if len(dest) == 0 {
 		return fuse.ReadResultData(nil), 0
 	}
-	data, err := f.n.cli.ReadRange(ctx, f.n.full, off, int64(len(dest)))
+	cctx, cancel := f.n.opCtx(ctx)
+	defer cancel()
+	data, err := f.n.cli.ReadRange(cctx, f.n.full, off, int64(len(dest)))
 	if err != nil {
 		return nil, grpcToErrno(err)
 	}
@@ -325,7 +352,9 @@ func (f *fileHandle) Write(ctx context.Context, data []byte, off int64) (uint32,
 	if len(data) == 0 {
 		return 0, 0
 	}
-	if err := f.n.cli.WriteAt(ctx, f.n.full, off, data); err != nil {
+	cctx, cancel := f.n.opCtx(ctx)
+	defer cancel()
+	if err := f.n.cli.WriteAt(cctx, f.n.full, off, data); err != nil {
 		return 0, grpcToErrno(err)
 	}
 	if f.n.cache != nil {
@@ -335,6 +364,20 @@ func (f *fileHandle) Write(ctx context.Context, data []byte, off int64) (uint32,
 }
 
 func (f *fileHandle) Flush(ctx context.Context) syscall.Errno {
+	if f.n.cache != nil {
+		f.n.cache.invalidatePath(f.n.full)
+	}
+	return 0
+}
+
+func (f *fileHandle) Release(ctx context.Context) syscall.Errno {
+	if f.n.cache != nil {
+		f.n.cache.invalidatePath(f.n.full)
+	}
+	return 0
+}
+
+func (f *fileHandle) Fsync(ctx context.Context, flags uint32) syscall.Errno {
 	if f.n.cache != nil {
 		f.n.cache.invalidatePath(f.n.full)
 	}
@@ -352,11 +395,14 @@ func (n *node) attrMode() uint32 {
 }
 
 var (
-	_ fs.NodeMkdirer  = (*node)(nil)
-	_ fs.NodeCreater  = (*node)(nil)
-	_ fs.NodeUnlinker = (*node)(nil)
-	_ fs.NodeRmdirer  = (*node)(nil)
-	_ fs.NodeRenamer  = (*node)(nil)
-	_ fs.FileWriter   = (*fileHandle)(nil)
-	_ fs.FileFlusher  = (*fileHandle)(nil)
+	_ fs.NodeMkdirer    = (*node)(nil)
+	_ fs.NodeCreater    = (*node)(nil)
+	_ fs.NodeUnlinker   = (*node)(nil)
+	_ fs.NodeRmdirer    = (*node)(nil)
+	_ fs.NodeRenamer    = (*node)(nil)
+	_ fs.NodeSetattrer  = (*node)(nil)
+	_ fs.FileWriter     = (*fileHandle)(nil)
+	_ fs.FileFlusher    = (*fileHandle)(nil)
+	_ fs.FileReleaser   = (*fileHandle)(nil)
+	_ fs.FileFsyncer    = (*fileHandle)(nil)
 )

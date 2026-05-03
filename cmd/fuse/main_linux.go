@@ -28,6 +28,7 @@ func main() {
 		cacheTTL   = flag.Duration("cache-ttl", 2*time.Second, "TTL for Stat() and Readdir() entries (0 disables caching)")
 		negTTL     = flag.Duration("negcache-ttl", time.Second, "TTL for negative path lookups (ENOENT cache)")
 		dirTTL     = flag.Duration("dircache-ttl", 0, "Readdir cache TTL (0 means same as -cache-ttl)")
+		rpcTimeout = flag.Duration("rpc-timeout", 0, "optional deadline for each gRPC call from FUSE (0 = use context from kernel only)")
 	)
 	flag.Parse()
 
@@ -57,11 +58,12 @@ func main() {
 	}
 
 	root := &node{
-		cli:    cli,
-		cache:  cache,
-		full:   mp,
-		isDir:  true,
-		mode:   0o755,
+		cli:         cli,
+		cache:       cache,
+		full:        mp,
+		isDir:       true,
+		mode:        0o755,
+		rpcTimeout:  *rpcTimeout,
 	}
 
 	opts := &fs.Options{
