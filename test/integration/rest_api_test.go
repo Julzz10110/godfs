@@ -34,6 +34,14 @@ func authHeader() string {
 	return ""
 }
 
+// Mutations that return an empty body use 204; JSON endpoints use 200.
+func requireSuccessMutate(t *testing.T, resp *http.Response, what string) {
+	t.Helper()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("%s: %d", what, resp.StatusCode)
+	}
+}
+
 func TestREST_Health(t *testing.T) {
 	c := restClient(t)
 	req, _ := http.NewRequest(http.MethodGet, restBaseURL()+"/v1/health", nil)
@@ -87,16 +95,12 @@ func TestREST_MKdirPutGet(t *testing.T) {
 
 	resp := doJSON(http.MethodPost, base+"/v1/fs/mkdir", map[string]string{"path": path})
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("mkdir %s: %d", path, resp.StatusCode)
-	}
+	requireSuccessMutate(t, resp, "mkdir "+path)
 
 	filePath := path + "/blob.bin"
 	resp = doJSON(http.MethodPost, base+"/v1/fs/file", map[string]string{"path": filePath})
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("create file: %d", resp.StatusCode)
-	}
+	requireSuccessMutate(t, resp, "create file "+filePath)
 
 	putBody := []byte("integration-" + t.Name())
 	putURL := base + "/v1/fs/content?" + url.Values{"path": {filePath}}.Encode()
@@ -113,8 +117,9 @@ func TestREST_MKdirPutGet(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("put: %d %s", resp.StatusCode, string(b))
+	requireSuccessMutate(t, resp, "put "+filePath)
+	if len(b) > 0 {
+		t.Fatalf("put: unexpected body %q", string(b))
 	}
 
 	getURL := base + "/v1/fs/content?" + url.Values{"path": {filePath}}.Encode()
