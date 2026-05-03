@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
@@ -165,7 +166,7 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 	// Heartbeat should be accepted by the leader (and replicated to followers via Raft state).
 	hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer hcancel()
-	connHB, err := grpc.NewClient(leader.grpcAddr, grpc.WithInsecure())
+	connHB, err := grpc.NewClient(leader.grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("dial leader for heartbeat: %v", err)
 	}

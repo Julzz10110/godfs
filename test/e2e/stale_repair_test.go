@@ -157,9 +157,6 @@ func TestE2E_StaleReplica_RepairedByRebalancer(t *testing.T) {
 	if chkName == "" {
 		t.Fatalf("no .chk in %s", n2.dir)
 	}
-	if !strings.HasPrefix(chkName, chunkID) && !strings.Contains(chkName, chunkID) {
-		// filename is chunkID.chk; still proceed
-	}
 	if err := os.WriteFile(filepath.Join(n2.dir, chunkID+".chk"), []byte("CORRUPTED"), 0o640); err != nil {
 		t.Fatal(err)
 	}

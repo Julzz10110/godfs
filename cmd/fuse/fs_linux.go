@@ -110,11 +110,11 @@ func (n *node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs
 	}
 	stable := fs.StableAttr{}
 	ch := n.NewInode(ctx, child, stable)
-	out.Attr.Mode = child.attrMode()
-	out.Attr.Size = uint64(child.size)
-	out.Attr.Mtime = uint64(child.mtime.Unix())
-	out.Attr.Ctime = uint64(child.ctime.Unix())
-	out.Attr.Atime = out.Attr.Mtime
+	out.Mode = child.attrMode()
+	out.Size = uint64(child.size)
+	out.Mtime = uint64(child.mtime.Unix())
+	out.Ctime = uint64(child.ctime.Unix())
+	out.Atime = out.Mtime
 	return ch, 0
 }
 
@@ -191,11 +191,11 @@ func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint3
 	}
 	stable := fs.StableAttr{}
 	ch := n.NewInode(ctx, child, stable)
-	out.Attr.Mode = child.attrMode()
-	out.Attr.Size = uint64(child.size)
-	out.Attr.Mtime = uint64(child.mtime.Unix())
-	out.Attr.Ctime = uint64(child.ctime.Unix())
-	out.Attr.Atime = out.Attr.Mtime
+	out.Mode = child.attrMode()
+	out.Size = uint64(child.size)
+	out.Mtime = uint64(child.mtime.Unix())
+	out.Ctime = uint64(child.ctime.Unix())
+	out.Atime = out.Mtime
 	fh := &fileHandle{n: child, writeable: true}
 	return ch, fh, 0, 0
 }
@@ -224,11 +224,11 @@ func (n *node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
 	}
 	stable := fs.StableAttr{}
 	ch := n.NewInode(ctx, child, stable)
-	out.Attr.Mode = child.attrMode()
-	out.Attr.Size = 0
-	out.Attr.Mtime = uint64(child.mtime.Unix())
-	out.Attr.Ctime = uint64(child.ctime.Unix())
-	out.Attr.Atime = out.Attr.Mtime
+	out.Mode = child.attrMode()
+	out.Size = 0
+	out.Mtime = uint64(child.mtime.Unix())
+	out.Ctime = uint64(child.ctime.Unix())
+	out.Atime = out.Mtime
 	return ch, 0
 }
 
