@@ -82,7 +82,6 @@ func (c *ChunkServer) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) e
 		}
 		g, gctx := errgroup.WithContext(ctx)
 		for _, peer := range meta.SecondaryAddresses {
-			peer := peer
 			g.Go(func() error {
 				return ReplicateFullChunk(gctx, peer, meta.ChunkId, full)
 			})

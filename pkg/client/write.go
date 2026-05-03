@@ -241,7 +241,6 @@ func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 	sem := semaphore.NewWeighted(int64(par))
 	g, ctx := errgroup.WithContext(ctx)
 	for _, s := range segs {
-		s := s
 		g.Go(func() error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
