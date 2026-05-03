@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Register a Toxiproxy front (container :18080) -> rest:8080 with latency toxics, then run REST smoke
-# through the proxy from a throwaway container on the same Compose network (avoids host IPv4 vs [::]
-# publish quirks on some Linux runners).
+# through the proxy from a throwaway container sharing toxiproxy's network namespace (curl 127.0.0.1:18080).
+# Avoids host IPv4 vs [::] publish quirks and wrong bridge names from non-deterministic docker inspect order.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,16 +44,13 @@ if [[ -z "${TOXI_CID}" ]]; then
   echo "toxiproxy_rest_gate: no toxiproxy container" >&2
   exit 1
 fi
-NET="$(docker inspect -f '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}' "${TOXI_CID}" | awk '{print $1; exit}')"
-if [[ -z "${NET}" ]]; then
-  echo "toxiproxy_rest_gate: could not read compose network from toxiproxy container" >&2
-  exit 1
-fi
 
-echo "Running REST smoke on Docker network=${NET} via http://toxiproxy:18080 ..."
+# Share toxiproxy's network namespace so we hit 127.0.0.1:18080 without DNS and without
+# guessing the Compose project network (docker inspect map order can pick the wrong bridge).
+echo "Running REST smoke in network namespace of toxiproxy container=${TOXI_CID} via http://127.0.0.1:18080 ..."
 docker run --rm \
-  --network "${NET}" \
-  -e REST_BASE_URL=http://toxiproxy:18080 \
+  --network "container:${TOXI_CID}" \
+  -e REST_BASE_URL=http://127.0.0.1:18080 \
   -e GODFS_TEST_API_KEY="${GODFS_TEST_API_KEY:-}" \
   -v "${ROOT}:/work:ro" \
   alpine:3.20 \
