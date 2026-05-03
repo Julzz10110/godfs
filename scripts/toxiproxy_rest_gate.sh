@@ -51,6 +51,7 @@ echo "Running REST smoke in network namespace of toxiproxy container=${TOXI_CID}
 docker run --rm \
   --network "container:${TOXI_CID}" \
   -e REST_BASE_URL=http://127.0.0.1:18080 \
+  -e REST_SMOKE_PREFIX="${REST_SMOKE_PREFIX:-/smoke_toxiproxy}" \
   -e GODFS_TEST_API_KEY="${GODFS_TEST_API_KEY:-}" \
   -v "${ROOT}:/work:ro" \
   alpine:3.20 \

@@ -12,6 +12,8 @@ if [[ -n "${GODFS_DOCKER_COMPOSE_EXTRA:-}" ]]; then
   COMPOSE+=(-f "${GODFS_DOCKER_COMPOSE_EXTRA}")
 fi
 export REST_BASE_URL="${REST_BASE_URL:-http://127.0.0.1:8080}"
+# Disjoint from earlier CI smokes on the same volume (/smoke, /smoke_toxiproxy).
+export REST_SMOKE_PREFIX="${REST_SMOKE_PREFIX:-/smoke_chaos}"
 
 echo "Chaos: SIGKILL chunk"
 CID="$("${COMPOSE[@]}" ps -q chunk)"

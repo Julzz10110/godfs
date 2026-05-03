@@ -2,6 +2,9 @@
 set -euo pipefail
 
 BASE_URL="${REST_BASE_URL:-http://127.0.0.1:8080}"
+# Separate runs (e.g. direct smoke then toxiproxy smoke in CI) must use disjoint paths;
+# mkdir on an existing path returns 409 and curl --fail exits 22.
+PREFIX="${REST_SMOKE_PREFIX:-/smoke}"
 
 echo "Waiting for REST health at $BASE_URL ..."
 for i in $(seq 1 90); do
@@ -22,15 +25,15 @@ fi
 
 curl -sf "${AUTH[@]}" -X POST "$BASE_URL/v1/fs/mkdir" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"/smoke"}'
+  -d "{\"path\":\"${PREFIX}\"}"
 
 curl -sf "${AUTH[@]}" -X POST "$BASE_URL/v1/fs/file" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"/smoke/hello.txt"}'
+  -d "{\"path\":\"${PREFIX}/hello.txt\"}"
 
-echo -n 'ci-smoke-hello' | curl -sf "${AUTH[@]}" -X PUT "$BASE_URL/v1/fs/content?path=/smoke/hello.txt" --data-binary @-
+echo -n 'ci-smoke-hello' | curl -sf "${AUTH[@]}" -X PUT "$BASE_URL/v1/fs/content?path=${PREFIX}/hello.txt" --data-binary @-
 
-got="$(curl -sf "${AUTH[@]}" "$BASE_URL/v1/fs/content?path=/smoke/hello.txt")"
+got="$(curl -sf "${AUTH[@]}" "$BASE_URL/v1/fs/content?path=${PREFIX}/hello.txt")"
 if [[ "$got" != 'ci-smoke-hello' ]]; then
   echo "GET content mismatch: got len=${#got}" >&2
   exit 1
@@ -39,7 +42,7 @@ fi
 # S3-style multipart upload (two parts)
 up="$(curl -sf "${AUTH[@]}" -X POST "$BASE_URL/v1/fs/multipart" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"/smoke/mp.bin"}')"
+  -d "{\"path\":\"${PREFIX}/mp.bin\"}")"
 uid="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["upload_id"])' "$up")"
 
 echo -n 'aa' | curl -sf "${AUTH[@]}" -X PUT "$BASE_URL/v1/fs/multipart/${uid}?partNumber=1" --data-binary @-
@@ -49,7 +52,7 @@ curl -sf "${AUTH[@]}" -X POST "$BASE_URL/v1/fs/multipart/${uid}/complete" \
   -H 'Content-Type: application/json' \
   -d '{"parts":[{"part_number":1},{"part_number":2}]}' >/dev/null
 
-mpgot="$(curl -sf "${AUTH[@]}" "$BASE_URL/v1/fs/content?path=/smoke/mp.bin")"
+mpgot="$(curl -sf "${AUTH[@]}" "$BASE_URL/v1/fs/content?path=${PREFIX}/mp.bin")"
 if [[ "$mpgot" != 'aabb' ]]; then
   echo "multipart GET mismatch" >&2
   exit 1
