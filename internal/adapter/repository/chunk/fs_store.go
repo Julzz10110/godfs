@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"godfs/internal/domain"
 )
 
 // FSStore stores chunk payloads as files under dataDir.
@@ -23,8 +25,42 @@ func NewFSStore(dataDir string) (*FSStore, error) {
 	return &FSStore{dataDir: dataDir}, nil
 }
 
-func (f *FSStore) path(chunkID string) string {
-	return filepath.Join(f.dataDir, chunkID+".chk")
+func validateChunkFileID(id string) error {
+	if id == "" || id == "." || id == ".." {
+		return domain.ErrInvalidPath
+	}
+	if id != filepath.Base(id) {
+		return domain.ErrInvalidPath
+	}
+	if len(id) > 512 {
+		return domain.ErrInvalidPath
+	}
+	return nil
+}
+
+// resolvedChunkPath returns an absolute path to the chunk file under dataDir,
+// rejecting traversal (e.g. chunk IDs containing path separators).
+func (f *FSStore) resolvedChunkPath(chunkID string) (string, error) {
+	if err := validateChunkFileID(chunkID); err != nil {
+		return "", err
+	}
+	full := filepath.Join(f.dataDir, chunkID+".chk")
+	baseAbs, err := filepath.Abs(f.dataDir)
+	if err != nil {
+		return "", err
+	}
+	fullAbs, err := filepath.Abs(full)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(baseAbs, fullAbs)
+	if err != nil {
+		return "", domain.ErrInvalidPath
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", domain.ErrInvalidPath
+	}
+	return fullAbs, nil
 }
 
 // WriteAt writes data at offset, extending file as needed.
@@ -32,7 +68,10 @@ func (f *FSStore) WriteAt(chunkID string, offset int64, data []byte) (written in
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	p := f.path(chunkID)
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return 0, nil, err
+	}
 	file, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o640)
 	if err != nil {
 		return 0, nil, err
@@ -65,7 +104,10 @@ func (f *FSStore) ReadAt(chunkID string, offset int64, buf []byte) (int, error) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	p := f.path(chunkID)
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return 0, err
+	}
 	file, err := os.Open(p)
 	if err != nil {
 		return 0, err
@@ -82,7 +124,11 @@ func (f *FSStore) ReadAt(chunkID string, offset int64, buf []byte) (int, error) 
 func (f *FSStore) Delete(chunkID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	err := os.Remove(f.path(chunkID))
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(p)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -94,7 +140,11 @@ func (f *FSStore) Size(chunkID string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	fi, err := os.Stat(f.path(chunkID))
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(p)
 	if err != nil {
 		return 0, err
 	}
@@ -105,13 +155,20 @@ func (f *FSStore) Size(chunkID string) (int64, error) {
 func (f *FSStore) ReadAll(chunkID string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return os.ReadFile(f.path(chunkID))
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(p)
 }
 
 func (f *FSStore) Checksum(chunkID string) (sum []byte, size int64, mod time.Time, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	p := f.path(chunkID)
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return nil, 0, time.Time{}, err
+	}
 	fi, err := os.Stat(p)
 	if err != nil {
 		return nil, 0, time.Time{}, err
@@ -128,7 +185,11 @@ func (f *FSStore) Checksum(chunkID string) (sum []byte, size int64, mod time.Tim
 func (f *FSStore) WriteFull(chunkID string, data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return os.WriteFile(f.path(chunkID), data, 0o640)
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0o640)
 }
 
 // ListChunkIDs returns all chunk IDs currently stored on disk (best-effort).

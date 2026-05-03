@@ -6,28 +6,29 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/raft"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	"godfs/internal/raftmeta"
-	"github.com/hashicorp/raft"
 	"godfs/pkg/client"
 )
 
 type raftMaster struct {
-	nodeID     string
-	grpcAddr   string
-	raftAddr   string
-	raftDir    string
-	grpcLn     net.Listener
-	grpcSrv    *grpc.Server
-	raftNode   *raftmeta.Node
-	store      *raftmeta.Service
+	nodeID   string
+	grpcAddr string
+	raftAddr string
+	raftDir  string
+	grpcLn   net.Listener
+	grpcSrv  *grpc.Server
+	raftNode *raftmeta.Node
+	store    *raftmeta.Service
 }
 
 func freeAddr(t *testing.T) string {
@@ -203,6 +204,42 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 		}
 	}
 
+	// Concurrent metadata mutations on the leader while the cluster is stable.
+	const loadWorkers = 8
+	var loadWG sync.WaitGroup
+	loadErrs := make(chan error, loadWorkers)
+	for w := 0; w < loadWorkers; w++ {
+		loadWG.Add(1)
+		go func(w int) {
+			defer loadWG.Done()
+			cw, err := client.NewWithChunkSize(leader.grpcAddr, chunkSize)
+			if err != nil {
+				loadErrs <- err
+				return
+			}
+			defer cw.Close()
+			root := fmt.Sprintf("/ld%d", w)
+			if err := cw.Mkdir(ctx, root); err != nil {
+				loadErrs <- err
+				return
+			}
+			for i := 0; i < 25; i++ {
+				sub := fmt.Sprintf("%s/n%d", root, i)
+				if err := cw.Mkdir(ctx, sub); err != nil {
+					loadErrs <- err
+					return
+				}
+			}
+		}(w)
+	}
+	loadWG.Wait()
+	close(loadErrs)
+	for err := range loadErrs {
+		if err != nil {
+			t.Fatalf("concurrent load: %v", err)
+		}
+	}
+
 	// Kill leader, then ensure a new leader can accept writes.
 	stopMaster(t, leader)
 	var remaining []*raftMaster
@@ -228,4 +265,3 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-

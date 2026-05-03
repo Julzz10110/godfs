@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"strconv"
@@ -12,7 +13,18 @@ import (
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/domain"
 )
+
+func chunkStoreStatus(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, domain.ErrInvalidPath) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	return status.Errorf(codes.Internal, "%v", err)
+}
 
 func readChunkFrameBytes() int {
 	const def = 32 * 1024
@@ -59,14 +71,14 @@ func (c *ChunkServer) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) e
 
 	n, sum, err := c.Store.WriteAt(meta.ChunkId, meta.OffsetInChunk, buf)
 	if err != nil {
-		return status.Errorf(codes.Internal, "write: %v", err)
+		return chunkStoreStatus(err)
 	}
 
 	ctx := stream.Context()
 	if len(meta.SecondaryAddresses) > 0 {
 		full, rerr := c.Store.ReadAll(meta.ChunkId)
 		if rerr != nil {
-			return status.Errorf(codes.Internal, "read for replicate: %v", rerr)
+			return chunkStoreStatus(rerr)
 		}
 		g, gctx := errgroup.WithContext(ctx)
 		for _, peer := range meta.SecondaryAddresses {
@@ -108,7 +120,7 @@ func (c *ChunkServer) SyncChunk(stream godfsv1.ChunkService_SyncChunkServer) err
 		return status.Error(codes.InvalidArgument, "missing meta")
 	}
 	if err := c.Store.WriteFull(chunkID, buf); err != nil {
-		return status.Errorf(codes.Internal, "sync write: %v", err)
+		return chunkStoreStatus(err)
 	}
 	return stream.SendAndClose(&godfsv1.SyncChunkResponse{BytesCopied: int64(len(buf))})
 }
@@ -149,7 +161,7 @@ func (c *ChunkServer) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.Ch
 			break
 		}
 		if err != nil {
-			return status.Errorf(codes.Internal, "read: %v", err)
+			return chunkStoreStatus(err)
 		}
 		off += int64(rn)
 		remain -= int64(rn)
@@ -177,7 +189,7 @@ func sendReadChunks(stream godfsv1.ChunkService_ReadChunkServer, data []byte) er
 
 func (c *ChunkServer) DeleteChunk(_ context.Context, req *godfsv1.DeleteChunkRequest) (*godfsv1.DeleteChunkResponse, error) {
 	if err := c.Store.Delete(req.ChunkId); err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, chunkStoreStatus(err)
 	}
 	return &godfsv1.DeleteChunkResponse{}, nil
 }
@@ -200,7 +212,7 @@ func (c *ChunkServer) ChecksumChunk(_ context.Context, req *godfsv1.ChecksumChun
 	}
 	sum, sz, mt, err := c.Store.Checksum(req.ChunkId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "checksum: %v", err)
+		return nil, chunkStoreStatus(err)
 	}
 	return &godfsv1.ChecksumChunkResponse{ChecksumSha256: sum, SizeBytes: sz, ModifiedAtUnix: mt.Unix()}, nil
 }
