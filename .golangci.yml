@@ -1,4 +1,4 @@
-# https://golangci-lint.run/usage/configuration/
+# https://golangci-lint.run/docs/configuration/file/
 version: "2"
 
 run:
@@ -13,8 +13,9 @@ linters:
     - misspell
     - staticcheck
     - unused
-
-issues:
-  exclude-rules:
-    - path: '^api/proto/'
-      linters: [staticcheck, unused]
+  exclusions:
+    rules:
+      - path: '^api/proto/'
+        linters:
+          - staticcheck
+          - unused
