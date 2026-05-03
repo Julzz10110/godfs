@@ -42,6 +42,27 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
+// uniqueFreeAddrs returns n distinct host:port strings. Sequential freeAddr calls
+// can otherwise reuse a recently closed ephemeral port, colliding with an
+// earlier address once listeners are bound (e.g. raft port == another node's gRPC).
+func uniqueFreeAddrs(t *testing.T, n int) []string {
+	t.Helper()
+	if n <= 0 {
+		return nil
+	}
+	out := make([]string, 0, n)
+	seen := make(map[string]struct{}, n)
+	for len(out) < n {
+		a := freeAddr(t)
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		out = append(out, a)
+	}
+	return out
+}
+
 func startRaftMaster(t *testing.T, nodeID, grpcAddr, raftAddr, raftDir, peersRaw string, chunkSize int64, replication int, bootstrap bool) *raftMaster {
 	t.Helper()
 
@@ -117,8 +138,9 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 
 	base := t.TempDir()
 
-	grpc0, grpc1, grpc2 := freeAddr(t), freeAddr(t), freeAddr(t)
-	raft0, raft1, raft2 := freeAddr(t), freeAddr(t), freeAddr(t)
+	addrs := uniqueFreeAddrs(t, 6)
+	grpc0, grpc1, grpc2 := addrs[0], addrs[1], addrs[2]
+	raft0, raft1, raft2 := addrs[3], addrs[4], addrs[5]
 
 	peersFull := fmt.Sprintf(
 		"m0@%s@%s,m1@%s@%s,m2@%s@%s",
