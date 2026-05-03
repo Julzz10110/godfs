@@ -1,0 +1,10 @@
+# Optional overlay: latency/jitter between clients and REST (blackbox / CI network gate).
+# Use with: docker compose -f docker-compose.yml -f docker-compose.toxiproxy.yml up -d
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    ports:
+      - "8474:8474"
+      - "18080:18080"
+    depends_on:
+      - rest

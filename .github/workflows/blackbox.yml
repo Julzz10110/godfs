@@ -1,0 +1,23 @@
+name: Blackbox long gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 0"
+
+env:
+  GODFS_DOCKER_COMPOSE_EXTRA: deployments/docker/docker-compose.toxiproxy.yml
+
+jobs:
+  blackbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Blackbox compose gate
+        run: bash scripts/blackbox_compose_gate.sh

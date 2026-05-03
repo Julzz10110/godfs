@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/usecase"
 	"godfs/pkg/client"
 )
 
@@ -452,6 +453,10 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	ctx := OutgoingRPCContext(r)
 	var b createSnapshotBody
 	if !decodeJSONBody(w, r, &b) {
+		return
+	}
+	if err := usecase.ValidateSnapshotLabel(b.Label); err != nil {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: err.Error()})
 		return
 	}
 	id, ts, err := s.Client.CreateSnapshot(ctx, b.Label)

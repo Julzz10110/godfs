@@ -20,6 +20,7 @@ func TestSentinelErrors(t *testing.T) {
 		ErrParentNotFound,
 		ErrInsufficientChunkServers,
 		ErrNotLeader,
+		ErrInvalidSnapshotLabel,
 	}
 	for _, want := range cases {
 		got := errors.New(want.Error())

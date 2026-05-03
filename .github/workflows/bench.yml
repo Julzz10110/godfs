@@ -1,0 +1,32 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 3"
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Micro-benchmark gate (ns/op)
+        run: bash scripts/bench_gate.sh
+
+      - name: Capture benchmark output
+        run: |
+          go test ./pkg/client -bench='^BenchmarkWriteSegmentSplit$' -benchtime=20x -count=6 -run='^$' 2>&1 | tee bench_ClientWriteSegmentSplit.txt
+
+      - name: benchstat vs baseline
+        run: bash scripts/benchstat_report.sh bench_ClientWriteSegmentSplit.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench_ClientWriteSegmentSplit
+          path: bench_ClientWriteSegmentSplit.txt

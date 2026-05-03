@@ -1,0 +1,4 @@
+goos: linux
+goarch: amd64
+pkg: godfs/pkg/client
+BenchmarkWriteSegmentSplit    	      15	       800.0 ns/op	     492 B/op	       4 allocs/op

@@ -58,6 +58,8 @@ func mapErr(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrInvalidPath):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, domain.ErrInvalidSnapshotLabel):
+		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, domain.ErrNoChunkServer):
 		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, domain.ErrInsufficientChunkServers):
@@ -178,11 +180,11 @@ func (m *MasterServer) Stat(ctx context.Context, req *godfsv1.StatRequest) (*god
 		return nil, mapErr(err)
 	}
 	return &godfsv1.StatResponse{
-		IsDir:           isDir,
-		Size:            sz,
-		CreatedAtUnix:   cr.Unix(),
-		ModifiedAtUnix:  mod.Unix(),
-		Mode:            mode,
+		IsDir:          isDir,
+		Size:           sz,
+		CreatedAtUnix:  cr.Unix(),
+		ModifiedAtUnix: mod.Unix(),
+		Mode:           mode,
 	}, nil
 }
 
@@ -212,15 +214,15 @@ func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWri
 		return nil, mapErr(err)
 	}
 	return &godfsv1.PrepareWriteResponse{
-		ChunkId:             string(cid),
-		PrimaryAddress:      addr,
-		SecondaryAddresses:  sec,
-		PrimaryNodeId:       string(primaryID),
-		LeaseId:             string(lease),
-		ChunkIndex:          idx,
-		ChunkOffset:         off,
-		ChunkSize:           csize,
-		Version:             ver,
+		ChunkId:            string(cid),
+		PrimaryAddress:     addr,
+		SecondaryAddresses: sec,
+		PrimaryNodeId:      string(primaryID),
+		LeaseId:            string(lease),
+		ChunkIndex:         idx,
+		ChunkOffset:        off,
+		ChunkSize:          csize,
+		Version:            ver,
 	}, nil
 }
 
@@ -245,18 +247,18 @@ func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChun
 	for i, r := range locs {
 		addrs[i] = r.Address
 		protoLocs[i] = &godfsv1.ReplicaLocation{
-			NodeId:       string(r.NodeID),
-			GrpcAddress:  r.Address,
+			NodeId:      string(r.NodeID),
+			GrpcAddress: r.Address,
 		}
 	}
 	return &godfsv1.GetChunkForReadResponse{
-		ChunkId:               string(cid),
-		ReplicaAddresses:      addrs,
-		ReplicaLocations:      protoLocs,
-		ChunkOffset:           off,
-		AvailableInChunk:      avail,
-		Version:               ver,
-		ChunkChecksumSha256:   cksum,
+		ChunkId:             string(cid),
+		ReplicaAddresses:    addrs,
+		ReplicaLocations:    protoLocs,
+		ChunkOffset:         off,
+		AvailableInChunk:    avail,
+		Version:             ver,
+		ChunkChecksumSha256: cksum,
 	}, nil
 }
 
@@ -273,6 +275,9 @@ func (m *MasterServer) Heartbeat(ctx context.Context, req *godfsv1.HeartbeatRequ
 func (m *MasterServer) CreateSnapshot(ctx context.Context, req *godfsv1.CreateSnapshotRequest) (*godfsv1.CreateSnapshotResponse, error) {
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
+	}
+	if err := usecase.ValidateSnapshotLabel(req.GetLabel()); err != nil {
+		return nil, mapErr(err)
 	}
 	id, ts, err := m.Store.CreateSnapshot(ctx, req.GetLabel())
 	if err != nil {

@@ -8,6 +8,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 COMPOSE=(docker compose -f deployments/docker/docker-compose.yml)
+if [[ -n "${GODFS_DOCKER_COMPOSE_EXTRA:-}" ]]; then
+  COMPOSE+=(-f "${GODFS_DOCKER_COMPOSE_EXTRA}")
+fi
 export REST_BASE_URL="${REST_BASE_URL:-http://127.0.0.1:8080}"
 
 echo "Chaos: SIGKILL chunk"

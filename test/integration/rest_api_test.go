@@ -143,3 +143,30 @@ func TestREST_MKdirPutGet(t *testing.T) {
 		t.Fatalf("body mismatch: got %q want %q", got, putBody)
 	}
 }
+
+func TestREST_SnapshotInvalidLabel(t *testing.T) {
+	base := restBaseURL()
+	c := restClient(t)
+	auth := authHeader()
+	body := map[string]string{"label": "bad/label"}
+	b, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/v1/snapshots", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("snapshot invalid label: want 400 got %d", resp.StatusCode)
+	}
+}

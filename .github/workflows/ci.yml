@@ -52,6 +52,8 @@ jobs:
 
   rest-compose:
     runs-on: ubuntu-latest
+    env:
+      GODFS_DOCKER_COMPOSE_EXTRA: deployments/docker/docker-compose.toxiproxy.yml
     steps:
       - uses: actions/checkout@v4
 
@@ -59,11 +61,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build and start stack
-        run: docker compose -f deployments/docker/docker-compose.yml up -d --build
+      - name: Build and start stack (with Toxiproxy overlay)
+        run: docker compose -f deployments/docker/docker-compose.yml -f deployments/docker/docker-compose.toxiproxy.yml up -d --build
 
-      - name: REST smoke (curl)
+      - name: REST smoke (curl, direct port)
         run: bash scripts/rest_compose_smoke.sh
+
+      - name: REST smoke via Toxiproxy (latency gate)
+        run: bash scripts/toxiproxy_rest_gate.sh
 
       - name: Integration tests (REST)
         run: go test ./test/integration -tags=integration -count=1 -timeout=5m -v
@@ -73,4 +78,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker compose -f deployments/docker/docker-compose.yml down -v
+        run: docker compose -f deployments/docker/docker-compose.yml -f deployments/docker/docker-compose.toxiproxy.yml down -v
