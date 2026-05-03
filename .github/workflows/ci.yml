@@ -34,14 +34,21 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test ./... -count=1 -timeout 15m
+      - name: Test (all packages except e2e)
+        run: |
+          set -e
+          mapfile -t pkgs < <(go list ./... | grep -v '^godfs/test/e2e$' || true)
+          if [ "${#pkgs[@]}" -eq 0 ]; then echo "no packages"; exit 1; fi
+          go test "${pkgs[@]}" -count=1 -timeout 10m
+
+      - name: E2E (incl. Raft failover)
+        run: go test ./test/e2e -count=1 -timeout=15m -v
 
       - name: Build FUSE (Linux)
         run: go build -o /tmp/godfs-fuse ./cmd/fuse
 
-      - name: Client micro-benchmarks
-        run: bash scripts/bench_ci.sh
+      - name: Client micro-benchmark gate (ns/op)
+        run: bash scripts/bench_gate.sh
 
   rest-compose:
     runs-on: ubuntu-latest

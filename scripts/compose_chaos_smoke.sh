@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Chaos smoke: kill ChunkServer container, bring it back, verify REST path still works.
+# Note: this compose profile uses a single in-memory master (no Raft); leader-kill
+# metadata chaos is covered by in-process e2e (see TestE2E_RaftMaster_ReplicationAndFailover in CI).
 # Prerequisites: docker compose stack already up (same file as rest-compose job).
 set -euo pipefail
 
