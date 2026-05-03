@@ -1,0 +1,20 @@
+# https://golangci-lint.run/usage/configuration/
+version: "2"
+
+run:
+  timeout: 8m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+
+issues:
+  exclude-rules:
+    - path: '^api/proto/'
+      linters: [staticcheck, unused]

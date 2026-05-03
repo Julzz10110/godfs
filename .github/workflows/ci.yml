@@ -7,6 +7,21 @@ on:
     branches: [main, master]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.5.0
+          args: --timeout=8m
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -25,16 +40,29 @@ jobs:
       - name: Build FUSE (Linux)
         run: go build -o /tmp/godfs-fuse ./cmd/fuse
 
+      - name: Client micro-benchmarks
+        run: bash scripts/bench_ci.sh
+
   rest-compose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Build and start stack
         run: docker compose -f deployments/docker/docker-compose.yml up -d --build
 
       - name: REST smoke (curl)
         run: bash scripts/rest_compose_smoke.sh
+
+      - name: Integration tests (REST)
+        run: go test ./test/integration -tags=integration -count=1 -timeout=5m -v
+
+      - name: Chaos smoke (chunk restart)
+        run: bash scripts/compose_chaos_smoke.sh
 
       - name: Tear down
         if: always()

@@ -62,6 +62,14 @@ go test ./test/e2e/...
 
 Unit tests: `go test ./internal/...`
 
+REST integration tests (requires a running REST gateway, e.g. `docker compose -f deployments/docker/docker-compose.yml up -d`):
+
+```bash
+go test ./test/integration -tags=integration -count=1
+```
+
+Static analysis locally (same linters as CI): install [golangci-lint](https://golangci-lint.run/welcome/install/) and run `golangci-lint run` from the repo root.
+
 ## External access
 
 - **REST:** `cmd/restgateway` — HTTP `/v1` API (Bearer `Authorization`, streaming GET/PUT, multipart, metrics, OTel). See **`docs/EXTERNAL_ACCESS.md`** and **`deployments/k8s/restgateway.yaml`** for Kubernetes.
