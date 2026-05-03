@@ -164,6 +164,46 @@ func (c *Client) writeBytes(ctx context.Context, path string, pos int64, b []byt
 	})
 }
 
+// WriteAt writes data to an existing file starting at offset (sparse extend supported by the server).
+func (c *Client) WriteAt(ctx context.Context, path string, off int64, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if off < 0 {
+		return fmt.Errorf("invalid offset")
+	}
+	cs := c.chunkSize
+	if cs <= 0 {
+		cs = defaultChunkSize
+	}
+	var segs []writeSeg
+	pos := off
+	remain := int64(len(data))
+	for remain > 0 {
+		chunkOff := pos % cs
+		maxInChunk := cs - chunkOff
+		n := remain
+		if n > maxInChunk {
+			n = maxInChunk
+		}
+		segs = append(segs, writeSeg{pos: pos, n: n})
+		pos += n
+		remain -= n
+	}
+	for _, s := range segs {
+		bufLo := s.pos - off
+		bufHi := bufLo + s.n
+		if bufLo < 0 || bufHi > int64(len(data)) {
+			return fmt.Errorf("write segment bounds")
+		}
+		chunk := data[bufLo:bufHi]
+		if err := c.writeBytes(ctx, path, s.pos, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Write writes full data to path (file must exist). Multiple chunk boundaries may be written in parallel (see GODFS_CLIENT_WRITE_PARALLELISM).
 func (c *Client) Write(ctx context.Context, path string, data []byte) error {
 	cs := c.chunkSize
