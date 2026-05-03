@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,9 @@ func TestREST_Health(t *testing.T) {
 
 func TestREST_MKdirPutGet(t *testing.T) {
 	base := restBaseURL()
-	path := "/itest/" + t.Name()
+	// One directory directly under / (parent must exist; /itest/... would require mkdir /itest first).
+	slug := strings.ReplaceAll(t.Name(), "/", "_") + "_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	path := "/itest_" + slug
 	client := restClient(t)
 	auth := authHeader()
 
