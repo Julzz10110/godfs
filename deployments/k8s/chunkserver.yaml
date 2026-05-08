@@ -35,9 +35,31 @@ spec:
               value: "0.0.0.0:9091"
             - name: GODFS_CHUNK_DATA
               value: "/var/lib/godfs/data"
+            # internal client TLS + hot reload.
+            - name: GODFS_TLS_RELOAD
+              value: "1"
+            - name: GODFS_TLS_RELOAD_INTERVAL
+              value: "5s"
+            - name: GODFS_TLS_ENABLED
+              value: "1"
+            - name: GODFS_TLS_CA_FILE
+              value: "/etc/godfs/tls/ca.crt"
+            - name: GODFS_TLS_CLIENT_CERT_FILE
+              value: "/etc/godfs/tls/tls.crt"
+            - name: GODFS_TLS_CLIENT_KEY_FILE
+              value: "/etc/godfs/tls/tls.key"
+            - name: GODFS_CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: godfs-auth
+                  key: GODFS_CLUSTER_KEY
+                  optional: true
           volumeMounts:
             - name: data
               mountPath: /var/lib/godfs
+            - name: tls
+              mountPath: /etc/godfs/tls
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: grpc
@@ -46,6 +68,10 @@ spec:
       volumes:
         - name: data
           emptyDir: {}
+        - name: tls
+          secret:
+            secretName: godfs-tls
+            optional: true
 ---
 apiVersion: v1
 kind: Service

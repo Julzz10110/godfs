@@ -20,6 +20,11 @@ spec:
         app.kubernetes.io/name: godfs-master
     spec:
       terminationGracePeriodSeconds: 30
+      volumes:
+        - name: tls
+          secret:
+            secretName: godfs-tls
+            optional: true
       containers:
         - name: master
           image: godfs-master:latest
@@ -58,12 +63,47 @@ spec:
                 godfs-master-4@godfs-master-4.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-4.godfs-master-hs.godfs.svc.cluster.local:9090
             - name: GODFS_METRICS_LISTEN
               value: "0.0.0.0:9091"
-            # TLS: mount secrets and set GODFS_TLS_* accordingly.
-            # Auth: use Secret for GODFS_CLUSTER_KEY / GODFS_API_KEYS / RBAC JSON.
+            # TLS hot reload + secrets from ExternalSecrets-backed Secrets.
+            - name: GODFS_TLS_RELOAD
+              value: "1"
+            - name: GODFS_TLS_RELOAD_INTERVAL
+              value: "5s"
+
+            - name: GODFS_CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: godfs-auth
+                  key: GODFS_CLUSTER_KEY
+                  optional: true
+            - name: GODFS_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: godfs-auth
+                  key: GODFS_API_KEYS
+                  optional: true
+            - name: GODFS_RBAC_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: godfs-auth
+                  key: GODFS_RBAC_JSON
+                  optional: true
+
+            - name: GODFS_TLS_ENABLED
+              value: "1"
+            - name: GODFS_TLS_CERT_FILE
+              value: "/etc/godfs/tls/tls.crt"
+            - name: GODFS_TLS_KEY_FILE
+              value: "/etc/godfs/tls/tls.key"
+            - name: GODFS_TLS_CA_FILE
+              value: "/etc/godfs/tls/ca.crt"
+
             # OTEL: set OTEL_EXPORTER_OTLP_ENDPOINT or GODFS_OTEL_EXPORTER_OTLP_ENDPOINT.
           volumeMounts:
             - name: raft
               mountPath: /var/lib/godfs/raft
+            - name: tls
+              mountPath: /etc/godfs/tls
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: grpc

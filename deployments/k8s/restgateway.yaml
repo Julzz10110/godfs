@@ -35,14 +35,35 @@ spec:
             # Chunk size must match Master (default 64 MiB if unset on both).
             # - name: GODFS_CHUNK_SIZE_BYTES
             #   value: "67108864"
-            # TLS to Master: mount Secret and set GODFS_TLS_*.
+            # TLS to Master + hot reload.
+            - name: GODFS_TLS_RELOAD
+              value: "1"
+            - name: GODFS_TLS_RELOAD_INTERVAL
+              value: "5s"
+            - name: GODFS_TLS_ENABLED
+              value: "1"
+            - name: GODFS_TLS_CA_FILE
+              value: "/etc/godfs/tls/ca.crt"
+            - name: GODFS_TLS_CLIENT_CERT_FILE
+              value: "/etc/godfs/tls/tls.crt"
+            - name: GODFS_TLS_CLIENT_KEY_FILE
+              value: "/etc/godfs/tls/tls.key"
             # OTLP: OTEL_EXPORTER_OTLP_ENDPOINT or GODFS_OTEL_EXPORTER_OTLP_ENDPOINT
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/godfs/tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /v1/health
               port: http
             initialDelaySeconds: 2
             periodSeconds: 5
+      volumes:
+        - name: tls
+          secret:
+            secretName: godfs-tls
+            optional: true
 ---
 apiVersion: v1
 kind: Service

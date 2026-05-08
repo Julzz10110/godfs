@@ -45,6 +45,20 @@ func firstNonEmpty(a, b string) string {
 // ServerTransportCredentials returns TLS server credentials (TLS 1.3+).
 // If CAFile is set, mTLS is required (RequireAndVerifyClientCert).
 func ServerTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
+	if tlsReloadEnabled() {
+		r, err := newCertReloader(cfg)
+		if err != nil {
+			return nil, err
+		}
+		// Use GetConfigForClient so ClientCAs can rotate too.
+		tlsConf := &tls.Config{
+			MinVersion:       tls.VersionTLS13,
+			GetCertificate:   r.getServerCert,
+			GetConfigForClient: r.serverConfigForClient,
+		}
+		return credentials.NewTLS(tlsConf), nil
+	}
+
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
 		return nil, err
@@ -70,6 +84,30 @@ func ServerTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials
 
 // ClientTransportCredentials returns TLS client credentials; optional mTLS if client cert+key set.
 func ClientTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
+	if tlsReloadEnabled() {
+		r, err := newCertReloader(cfg)
+		if err != nil {
+			return nil, err
+		}
+		tlsConf := &tls.Config{
+			MinVersion:           tls.VersionTLS13,
+			GetClientCertificate: r.getClientCert,
+		}
+		// RootCAs rotation is not handled here; baseline is server-side CA rotation.
+		if cfg.CAFile != "" {
+			caPEM, err := os.ReadFile(cfg.CAFile)
+			if err != nil {
+				return nil, err
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caPEM) {
+				return nil, errors.New("invalid CA PEM")
+			}
+			tlsConf.RootCAs = pool
+		}
+		return credentials.NewTLS(tlsConf), nil
+	}
+
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS13}
 	if cfg.CAFile != "" {
 		caPEM, err := os.ReadFile(cfg.CAFile)

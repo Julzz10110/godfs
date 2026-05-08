@@ -39,6 +39,22 @@ Subsequent restarts must rely on the persisted Raft state under `GODFS_MASTER_RA
 - PDB (`master-raft-pdb.yaml`) enforces `minAvailable: 3`.
 - Recommended: update one pod at a time and verify a leader exists.
 
+## External Secrets
+
+Examples live under `deployments/k8s/external-secrets/`:
+
+- `godfs-secretstore-example.yaml` (placeholder SecretStore)
+- `godfs-secrets.yaml` (ExternalSecret → `godfs-auth` and `godfs-tls`)
+
+Apply them before workloads (requires External Secrets Operator installed in the cluster):
+
+```bash
+kubectl apply -f deployments/k8s/external-secrets/godfs-secretstore-example.yaml
+kubectl apply -f deployments/k8s/external-secrets/godfs-secrets.yaml
+```
+
+Workloads reference `godfs-auth` and `godfs-tls`. TLS hot reload is enabled via `GODFS_TLS_RELOAD=1`.
+
 Build and load images into your cluster (names must match `image:` fields):
 
 ```bash
