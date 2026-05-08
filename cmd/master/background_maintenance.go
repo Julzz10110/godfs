@@ -168,6 +168,10 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					PendingDeletes:        st.PendingDeletes,
 					UnrepairableChunks:    st.UnrepairableChunks,
 				})
+				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
+					Alive: st.ChunkNodesAlive,
+					Dead:  st.ChunkNodesDead,
+				})
 			}
 		}()
 	}
@@ -237,6 +241,10 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					UnderReplicatedChunks: st.UnderReplicatedChunks,
 					PendingDeletes:        st.PendingDeletes,
 					UnrepairableChunks:    st.UnrepairableChunks,
+				})
+				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
+					Alive: st.ChunkNodesAlive,
+					Dead:  st.ChunkNodesDead,
 				})
 			}
 		}()
@@ -374,6 +382,10 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					PendingDeletes:        st.PendingDeletes,
 					UnrepairableChunks:    st.UnrepairableChunks,
 				})
+				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
+					Alive: st.ChunkNodesAlive,
+					Dead:  st.ChunkNodesDead,
+				})
 			}
 		}()
 	}
@@ -434,6 +446,10 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					UnderReplicatedChunks: st.UnderReplicatedChunks,
 					PendingDeletes:        st.PendingDeletes,
 					UnrepairableChunks:    st.UnrepairableChunks,
+				})
+				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
+					Alive: st.ChunkNodesAlive,
+					Dead:  st.ChunkNodesDead,
 				})
 			}
 		}()

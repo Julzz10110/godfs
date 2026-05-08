@@ -13,6 +13,9 @@ type DataPlaneStats struct {
 	UnderReplicatedChunks int
 	PendingDeletes        int
 	UnrepairableChunks    int
+
+	ChunkNodesAlive int
+	ChunkNodesDead  int
 }
 
 func (s *Store) DataPlaneStats(at time.Time) DataPlaneStats {
@@ -49,6 +52,20 @@ func (s *Store) DataPlaneStats(at time.Time) DataPlaneStats {
 
 	for _, addrs := range s.pendingDeletes {
 		st.PendingDeletes += len(addrs)
+	}
+
+	// Chunk node liveness summary.
+	if s.nodeDeadAfter > 0 {
+		for id := range s.nodeStatus {
+			if s.isAliveAt(id, at) {
+				st.ChunkNodesAlive++
+			} else {
+				st.ChunkNodesDead++
+			}
+		}
+	} else {
+		// If liveness filtering disabled, treat all known nodes as alive.
+		st.ChunkNodesAlive = len(s.nodeStatus)
 	}
 
 	for _, t := range s.rebalanceTasks {

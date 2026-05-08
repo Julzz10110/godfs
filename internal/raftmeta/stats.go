@@ -13,6 +13,9 @@ type DataPlaneStats struct {
 	UnderReplicatedChunks int
 	PendingDeletes        int
 	UnrepairableChunks    int
+
+	ChunkNodesAlive int
+	ChunkNodesDead  int
 }
 
 func (s *Service) DataPlaneStats(at time.Time) DataPlaneStats {
@@ -50,6 +53,17 @@ func (s *Service) DataPlaneStats(at time.Time) DataPlaneStats {
 	}
 	for _, addrs := range state.PendingDeletes {
 		st.PendingDeletes += len(addrs)
+	}
+	if state.NodeDeadAfter > 0 {
+		for id := range state.NodeStatus {
+			if state.isAliveAt(id, at) {
+				st.ChunkNodesAlive++
+			} else {
+				st.ChunkNodesDead++
+			}
+		}
+	} else {
+		st.ChunkNodesAlive = len(state.NodeStatus)
 	}
 	for _, t := range state.RebalanceTasks {
 		if t == nil {

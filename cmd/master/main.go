@@ -40,6 +40,7 @@ func main() {
 	observability.EnableGRPCPrometheusHistograms()
 	observability.StartMetricsHTTPServer(os.Getenv("GODFS_METRICS_LISTEN"))
 	observability.InitDataPlaneMetrics()
+	observability.InitRaftSREMetrics()
 
 	grpcListen := ":9090"
 	if v := os.Getenv("GODFS_MASTER_GRPC_LISTEN"); v != "" {
@@ -243,6 +244,36 @@ func main() {
 			perNodePullInFlight:     perNodePullInFlight,
 			perNodeChecksumInFlight: perNodeChecksumInFlight,
 		})
+
+		// publish Raft SRE metrics periodically
+		go func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for range t.C {
+				if !rstore.IsLeader() {
+					observability.SetRaftSREStats(observability.RaftSREStats{IsLeader: false})
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				peers, _, err := rstore.ListMasters(ctx)
+				cancel()
+				if err != nil {
+					observability.SetRaftSREStats(observability.RaftSREStats{IsLeader: true})
+					continue
+				}
+				voters := 0
+				for _, p := range peers {
+					if p.Voter {
+						voters++
+					}
+				}
+				observability.SetRaftSREStats(observability.RaftSREStats{
+					IsLeader:       true,
+					ClusterServers: len(peers),
+					ClusterVoters:  voters,
+				})
+			}
+		}()
 	} else {
 		metaStore := metadata.NewStore(chunkSize, replication)
 		metaStore.SetNodeDeadAfter(nodeDeadAfter)
