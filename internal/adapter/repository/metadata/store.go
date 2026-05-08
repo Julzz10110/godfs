@@ -22,6 +22,10 @@ type Store struct {
 	chunkSize         int64
 	replicationFactor int
 
+	// checksumVerifier, when set, is used by PlanRebalance to verify replica checksums
+	// with budgets/caching. It is expected to be configured by the master process.
+	checksumVerifier ChecksumVerifier
+
 	nodes []domain.ChunkNode
 	// nodeUsedBytes is estimated bytes reserved per node (chunkSize per chunk placed).
 	nodeUsedBytes map[domain.NodeID]int64

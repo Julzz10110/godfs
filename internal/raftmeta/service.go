@@ -18,6 +18,8 @@ type Service struct {
 	fsm  *FSM
 
 	leaderGrpcByRaftAddr map[string]string // raftAddr -> grpcAddr (best-effort redirect)
+
+	checksumVerifier ChecksumVerifier
 }
 
 func NewService(r *raft.Raft, fsm *FSM, leaderGrpcByRaftAddr map[string]string) *Service {
@@ -26,6 +28,10 @@ func NewService(r *raft.Raft, fsm *FSM, leaderGrpcByRaftAddr map[string]string) 
 		fsm:                 fsm,
 		leaderGrpcByRaftAddr: leaderGrpcByRaftAddr,
 	}
+}
+
+func (s *Service) SetChecksumVerifier(v ChecksumVerifier) {
+	s.checksumVerifier = v
 }
 
 func (s *Service) IsLeader() bool {

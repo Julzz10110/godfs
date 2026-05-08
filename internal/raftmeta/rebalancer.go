@@ -14,6 +14,9 @@ import (
 	"godfs/internal/security"
 )
 
+// ChecksumVerifier verifies replica checksums with optional budgets/caching.
+type ChecksumVerifier func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error)
+
 type RebalanceAction struct {
 	ChunkID       domain.ChunkID
 	SourceAddr    string
@@ -21,6 +24,9 @@ type RebalanceAction struct {
 	TargetAddr    string
 	// RepairExisting indicates the target is an existing replica to be overwritten (stale repair).
 	RepairExisting bool
+	// Unrepairable indicates the chunk appears unrecoverable right now (no good replica found).
+	Unrepairable       bool
+	UnrepairableReason string
 }
 
 type chunkPlan struct {
@@ -69,6 +75,9 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 
 	// Helper: compute checksum from a replica.
 	repChecksum := func(addr string, chunkID domain.ChunkID) ([]byte, error) {
+		if s.checksumVerifier != nil {
+			return s.checksumVerifier(context.Background(), addr, chunkID)
+		}
 		dopts, err := security.ClientDialOptions()
 		if err != nil {
 			return nil, err
@@ -93,10 +102,12 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 		}
 		// Find a good source matching metadata checksum.
 		var goodSrc string
+		aliveReplicas := 0
 		for _, r := range p.replicas {
 			if !isAlive(r.NodeID) {
 				continue
 			}
+			aliveReplicas++
 			sum, err := repChecksum(r.Address, p.id)
 			if err == nil && len(sum) == 32 && bytes.Equal(sum, p.checksum) {
 				goodSrc = r.Address
@@ -104,6 +115,13 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 			}
 		}
 		if goodSrc == "" {
+			if aliveReplicas > 0 {
+				return &RebalanceAction{
+					ChunkID:             p.id,
+					Unrepairable:        true,
+					UnrepairableReason:  "no_good_replica",
+				}, nil
+			}
 			continue
 		}
 		// Find a stale replica to repair.

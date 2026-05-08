@@ -13,6 +13,15 @@ import (
 	"godfs/internal/security"
 )
 
+// ChecksumVerifier verifies replica checksums with optional budgets/caching.
+type ChecksumVerifier func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error)
+
+func (s *Store) SetChecksumVerifier(v ChecksumVerifier) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checksumVerifier = v
+}
+
 // RebalanceAction describes one rebalance or stale-replica repair step on the in-memory metadata store.
 type RebalanceAction struct {
 	ChunkID        domain.ChunkID
@@ -20,6 +29,10 @@ type RebalanceAction struct {
 	TargetNodeID   domain.NodeID
 	TargetAddr     string
 	RepairExisting bool
+	// Unrepairable indicates the chunk appears unrecoverable right now (no good replica found).
+	// Caller should record backoff and stop trying until later.
+	Unrepairable       bool
+	UnrepairableReason string
 }
 
 type chunkPlan struct {
@@ -77,6 +90,12 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 	}
 
 	repChecksum := func(addr string, chunkID domain.ChunkID) ([]byte, error) {
+		s.mu.RLock()
+		v := s.checksumVerifier
+		s.mu.RUnlock()
+		if v != nil {
+			return v(context.Background(), addr, chunkID)
+		}
 		dopts, err := security.ClientDialOptions()
 		if err != nil {
 			return nil, err
@@ -99,10 +118,12 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 			continue
 		}
 		var goodSrc string
+		aliveReplicas := 0
 		for _, r := range p.replicas {
 			if !isAlive(r.NodeID) {
 				continue
 			}
+			aliveReplicas++
 			sum, err := repChecksum(r.Address, p.id)
 			if err == nil && len(sum) == 32 && bytes.Equal(sum, p.checksum) {
 				goodSrc = r.Address
@@ -110,6 +131,17 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 			}
 		}
 		if goodSrc == "" {
+			if aliveReplicas > 0 {
+				return &RebalanceAction{
+					ChunkID:             p.id,
+					Unrepairable:        true,
+					UnrepairableReason:  "no_good_replica",
+					RepairExisting:      false,
+					SourceAddr:          "",
+					TargetAddr:          "",
+					TargetNodeID:        "",
+				}, nil
+			}
 			continue
 		}
 		for _, r := range p.replicas {

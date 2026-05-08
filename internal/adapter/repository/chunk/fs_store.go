@@ -2,6 +2,7 @@ package chunk
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -190,6 +191,68 @@ func (f *FSStore) WriteFull(chunkID string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(p, data, 0o640)
+}
+
+// WriteFullFromReader replaces the chunk file by streaming from r.
+// It writes into a temp file and swaps it into place (best-effort atomic on Unix;
+// on Windows we may need to remove the target first).
+// If maxBytes > 0, reading more than maxBytes returns an error.
+func (f *FSStore) WriteFullFromReader(chunkID string, r io.Reader, maxBytes int64) (written int64, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	p, err := f.resolvedChunkPath(chunkID)
+	if err != nil {
+		return 0, err
+	}
+
+	tmp, err := os.CreateTemp(f.dataDir, chunkID+".*.tmp")
+	if err != nil {
+		return 0, err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
+
+	var n int64
+	if maxBytes > 0 {
+		n, err = io.CopyN(tmp, r, maxBytes+1)
+		if err == nil {
+			return n, fmt.Errorf("chunk exceeds max bytes")
+		}
+		if err == io.EOF {
+			// ok: less than maxBytes
+			err = nil
+		}
+		if n > maxBytes {
+			return n, fmt.Errorf("chunk exceeds max bytes")
+		}
+	} else {
+		n, err = io.Copy(tmp, r)
+		if err != nil {
+			return n, err
+		}
+	}
+	if err != nil {
+		return n, err
+	}
+	if err := tmp.Sync(); err != nil {
+		return n, err
+	}
+	if err := tmp.Close(); err != nil {
+		return n, err
+	}
+
+	if err := os.Rename(tmpName, p); err != nil {
+		// Windows cannot rename over an existing file.
+		_ = os.Remove(p)
+		if err2 := os.Rename(tmpName, p); err2 != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // ListChunkIDs returns all chunk IDs currently stored on disk (best-effort).

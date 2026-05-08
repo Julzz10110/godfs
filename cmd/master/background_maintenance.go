@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/internal/adapter/repository/metadata"
+	"godfs/internal/maintenance/checksumcache"
+	"godfs/internal/maintenance/limits"
+	"godfs/internal/observability"
+	"godfs/internal/domain"
 	"godfs/internal/raftmeta"
 	"godfs/internal/security"
 )
@@ -27,10 +32,65 @@ type maintenanceLoopConfig struct {
 	orphanEvery           time.Duration
 	orphanMinAge          time.Duration
 	orphanMaxPerNode      int
+
+	// In-flight limits (0 = disabled).
+	rebalanceInFlight          int
+	gcInFlight                int
+	checksumInFlight          int
+	perNodePullInFlight       int
+	perNodeChecksumInFlight   int
 }
 
 // startRaftBackgroundMaintenance runs periodic rebalance, best-effort chunk delete after metadata removal, and orphan file cleanup on the Raft leader.
 func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoopConfig) {
+	lim := limits.New(limits.Config{
+		GlobalInFlight: map[limits.Kind]int{
+			limits.KindPullChunk:   cfg.rebalanceInFlight,
+			limits.KindDeleteChunk: cfg.gcInFlight,
+			limits.KindChecksum:    cfg.checksumInFlight,
+		},
+		PerKeyInFlight: map[limits.Kind]int{
+			limits.KindPullChunk: cfg.perNodePullInFlight,
+			limits.KindChecksum:  cfg.perNodeChecksumInFlight,
+		},
+	})
+	ckCache := checksumcache.New(2 * time.Second)
+	rstore.SetChecksumVerifier(func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
+		now := time.Now().UTC()
+		key := fmt.Sprintf("%s|%s", addr, chunkID)
+		if sum, ok := ckCache.Get(key, now); ok {
+			return sum, nil
+		}
+		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		release, ok := lim.Acquire(cctx, limits.KindChecksum, addr)
+		if !ok {
+			return nil, cctx.Err()
+		}
+		observability.IncInFlight(observability.InFlightChecksum)
+		defer observability.DecInFlight(observability.InFlightChecksum)
+		defer release()
+
+		dopts, err := security.ClientDialOptions()
+		if err != nil {
+			return nil, err
+		}
+		cc, err := grpc.NewClient(addr, dopts...)
+		if err != nil {
+			return nil, err
+		}
+		defer cc.Close()
+		cli := godfsv1.NewChunkServiceClient(cc)
+		resp, err := cli.ChecksumChunk(cctx, &godfsv1.ChecksumChunkRequest{ChunkId: string(chunkID)})
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.ChecksumSha256) == 32 {
+			ckCache.Put(key, resp.ChecksumSha256, now)
+		}
+		return resp.ChecksumSha256, nil
+	})
+
 	if cfg.rebalanceEvery > 0 {
 		go func() {
 			t := time.NewTicker(cfg.rebalanceEvery)
@@ -45,14 +105,46 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					if err != nil || act == nil {
 						break
 					}
+					if act.Unrepairable {
+						attempts := rstore.RebalanceAttempts(act.ChunkID)
+						backoff := cfg.rebalanceBackoffMax
+						if backoff <= 0 {
+							backoff = 30 * time.Second
+						}
+						next := now.Add(backoff).Unix()
+						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+						_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, "unrepairable:"+act.UnrepairableReason)
+						ucancel()
+						observability.RecordRebalanceAction(observability.ActionRepairStale, context.Canceled, "unrepairable")
+						continue
+					}
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					key := string(act.TargetNodeID)
+					release, ok := lim.Acquire(ctx, limits.KindPullChunk, key)
+					if !ok {
+						cancel()
+						break
+					}
+					observability.IncInFlight(observability.InFlightPull)
 					err = rstore.ExecuteRebalance(ctx, act)
+					observability.DecInFlight(observability.InFlightPull)
+					release()
 					cancel()
 					if err == nil {
+						if act.RepairExisting {
+							observability.RecordRebalanceAction(observability.ActionRepairStale, nil, "")
+						} else {
+							observability.RecordRebalanceAction(observability.ActionAddReplica, nil, "")
+						}
 						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 						_ = rstore.ClearRebalanceTask(uctx, act.ChunkID)
 						ucancel()
 						continue
+					}
+					if act.RepairExisting {
+						observability.RecordRebalanceAction(observability.ActionRepairStale, err, "execute")
+					} else {
+						observability.RecordRebalanceAction(observability.ActionAddReplica, err, "execute")
 					}
 					attempts := rstore.RebalanceAttempts(act.ChunkID)
 					if attempts >= cfg.rebalanceMaxAttempts {
@@ -70,6 +162,12 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, err.Error())
 					ucancel()
 				}
+				st := rstore.DataPlaneStats(now)
+				observability.SetDataPlaneStats(observability.DataPlaneStats{
+					UnderReplicatedChunks: st.UnderReplicatedChunks,
+					PendingDeletes:        st.PendingDeletes,
+					UnrepairableChunks:    st.UnrepairableChunks,
+				})
 			}
 		}()
 	}
@@ -95,6 +193,12 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 						continue
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					release, ok := lim.Acquire(ctx, limits.KindDeleteChunk, addr)
+					if !ok {
+						cancel()
+						break
+					}
+					observability.IncInFlight(observability.InFlightDelete)
 					err := func() error {
 						dopts, err := security.ClientDialOptions()
 						if err != nil {
@@ -109,7 +213,10 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 						_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
 						return err
 					}()
+					observability.DecInFlight(observability.InFlightDelete)
+					release()
 					cancel()
+					observability.RecordDeleteAction(err, "delete_chunk")
 					if err == nil {
 						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 						_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
@@ -125,6 +232,12 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					_ = rstore.MarkPendingDeleteAttempt(uctx, cid, addr, attempts+1, next)
 					ucancel()
 				}
+				st := rstore.DataPlaneStats(now)
+				observability.SetDataPlaneStats(observability.DataPlaneStats{
+					UnderReplicatedChunks: st.UnderReplicatedChunks,
+					PendingDeletes:        st.PendingDeletes,
+					UnrepairableChunks:    st.UnrepairableChunks,
+				})
 			}
 		}()
 	}
@@ -147,6 +260,54 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 
 // startSingleMasterBackgroundMaintenance runs the same background tasks for the in-memory metadata store (no Raft leader check).
 func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLoopConfig) {
+	lim := limits.New(limits.Config{
+		GlobalInFlight: map[limits.Kind]int{
+			limits.KindPullChunk:   cfg.rebalanceInFlight,
+			limits.KindDeleteChunk: cfg.gcInFlight,
+			limits.KindChecksum:    cfg.checksumInFlight,
+		},
+		PerKeyInFlight: map[limits.Kind]int{
+			limits.KindPullChunk: cfg.perNodePullInFlight,
+			limits.KindChecksum:  cfg.perNodeChecksumInFlight,
+		},
+	})
+	ckCache := checksumcache.New(2 * time.Second)
+	m.SetChecksumVerifier(func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
+		now := time.Now().UTC()
+		key := fmt.Sprintf("%s|%s", addr, chunkID)
+		if sum, ok := ckCache.Get(key, now); ok {
+			return sum, nil
+		}
+		cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		release, ok := lim.Acquire(cctx, limits.KindChecksum, addr)
+		if !ok {
+			return nil, cctx.Err()
+		}
+		observability.IncInFlight(observability.InFlightChecksum)
+		defer observability.DecInFlight(observability.InFlightChecksum)
+		defer release()
+
+		dopts, err := security.ClientDialOptions()
+		if err != nil {
+			return nil, err
+		}
+		cc, err := grpc.NewClient(addr, dopts...)
+		if err != nil {
+			return nil, err
+		}
+		defer cc.Close()
+		cli := godfsv1.NewChunkServiceClient(cc)
+		resp, err := cli.ChecksumChunk(cctx, &godfsv1.ChecksumChunkRequest{ChunkId: string(chunkID)})
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.ChecksumSha256) == 32 {
+			ckCache.Put(key, resp.ChecksumSha256, now)
+		}
+		return resp.ChecksumSha256, nil
+	})
+
 	if cfg.rebalanceEvery > 0 {
 		go func() {
 			t := time.NewTicker(cfg.rebalanceEvery)
@@ -158,12 +319,42 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					if err != nil || act == nil {
 						break
 					}
+					if act.Unrepairable {
+						attempts := m.RebalanceAttempts(act.ChunkID)
+						backoff := cfg.rebalanceBackoffMax
+						if backoff <= 0 {
+							backoff = 30 * time.Second
+						}
+						next := now.Add(backoff).Unix()
+						m.MarkRebalanceAttempt(act.ChunkID, attempts+1, next, "unrepairable:"+act.UnrepairableReason)
+						observability.RecordRebalanceAction(observability.ActionRepairStale, context.Canceled, "unrepairable")
+						continue
+					}
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					key := string(act.TargetNodeID)
+					release, ok := lim.Acquire(ctx, limits.KindPullChunk, key)
+					if !ok {
+						cancel()
+						break
+					}
+					observability.IncInFlight(observability.InFlightPull)
 					err = m.ExecuteRebalance(ctx, act)
+					observability.DecInFlight(observability.InFlightPull)
+					release()
 					cancel()
 					if err == nil {
+						if act.RepairExisting {
+							observability.RecordRebalanceAction(observability.ActionRepairStale, nil, "")
+						} else {
+							observability.RecordRebalanceAction(observability.ActionAddReplica, nil, "")
+						}
 						m.ClearRebalanceTask(act.ChunkID)
 						continue
+					}
+					if act.RepairExisting {
+						observability.RecordRebalanceAction(observability.ActionRepairStale, err, "execute")
+					} else {
+						observability.RecordRebalanceAction(observability.ActionAddReplica, err, "execute")
 					}
 					attempts := m.RebalanceAttempts(act.ChunkID)
 					if attempts >= cfg.rebalanceMaxAttempts {
@@ -177,6 +368,12 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					next := now.Add(backoff).Unix()
 					m.MarkRebalanceAttempt(act.ChunkID, attempts+1, next, err.Error())
 				}
+				st := m.DataPlaneStats(now)
+				observability.SetDataPlaneStats(observability.DataPlaneStats{
+					UnderReplicatedChunks: st.UnderReplicatedChunks,
+					PendingDeletes:        st.PendingDeletes,
+					UnrepairableChunks:    st.UnrepairableChunks,
+				})
 			}
 		}()
 	}
@@ -197,6 +394,12 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 						continue
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					release, ok := lim.Acquire(ctx, limits.KindDeleteChunk, addr)
+					if !ok {
+						cancel()
+						break
+					}
+					observability.IncInFlight(observability.InFlightDelete)
 					err := func() error {
 						dopts, err := security.ClientDialOptions()
 						if err != nil {
@@ -211,7 +414,10 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 						_, err = cli.DeleteChunk(ctx, &godfsv1.DeleteChunkRequest{ChunkId: string(cid)})
 						return err
 					}()
+					observability.DecInFlight(observability.InFlightDelete)
+					release()
 					cancel()
+					observability.RecordDeleteAction(err, "delete_chunk")
 					if err == nil {
 						m.ClearPendingDeleteAddr(cid, addr)
 						continue
@@ -223,6 +429,12 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					next := now.Add(backoff).Unix()
 					m.MarkPendingDeleteAttempt(cid, addr, attempts+1, next)
 				}
+				st := m.DataPlaneStats(now)
+				observability.SetDataPlaneStats(observability.DataPlaneStats{
+					UnderReplicatedChunks: st.UnderReplicatedChunks,
+					PendingDeletes:        st.PendingDeletes,
+					UnrepairableChunks:    st.UnrepairableChunks,
+				})
 			}
 		}()
 	}

@@ -39,6 +39,7 @@ func main() {
 
 	observability.EnableGRPCPrometheusHistograms()
 	observability.StartMetricsHTTPServer(os.Getenv("GODFS_METRICS_LISTEN"))
+	observability.InitDataPlaneMetrics()
 
 	grpcListen := ":9090"
 	if v := os.Getenv("GODFS_MASTER_GRPC_LISTEN"); v != "" {
@@ -137,6 +138,38 @@ func main() {
 		}
 	}
 
+	// maintenance in-flight limits (0 = disabled).
+	rebalanceInFlight := 0
+	if v := os.Getenv("GODFS_MAINT_REBALANCE_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rebalanceInFlight = n
+		}
+	}
+	gcInFlight := 0
+	if v := os.Getenv("GODFS_MAINT_GC_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			gcInFlight = n
+		}
+	}
+	checksumInFlight := 0
+	if v := os.Getenv("GODFS_MAINT_CHECKSUM_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			checksumInFlight = n
+		}
+	}
+	perNodePullInFlight := 0
+	if v := os.Getenv("GODFS_MAINT_PER_NODE_PULL_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			perNodePullInFlight = n
+		}
+	}
+	perNodeChecksumInFlight := 0
+	if v := os.Getenv("GODFS_MAINT_PER_NODE_CHECKSUM_INFLIGHT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			perNodeChecksumInFlight = n
+		}
+	}
+
 	chunkSize := int64(config.DefaultChunkSize)
 	if v := os.Getenv("GODFS_CHUNK_SIZE_BYTES"); v != "" {
 		var n int64
@@ -191,19 +224,24 @@ func main() {
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
 
 		startRaftBackgroundMaintenance(rstore, maintenanceLoopConfig{
-			rebalanceEvery:       rebalanceEvery,
-			rebalanceMaxPerTick:  rebalanceMaxPerTick,
-			rebalanceMaxAttempts: rebalanceMaxAttempts,
-			rebalanceBackoffBase: rebalanceBackoffBase,
-			rebalanceBackoffMax:  rebalanceBackoffMax,
-			gcEvery:              gcEvery,
-			gcMaxPerTick:         gcMaxPerTick,
-			gcMaxAttempts:        gcMaxAttempts,
-			gcBaseBackoff:        gcBaseBackoff,
-			gcMaxBackoff:         gcMaxBackoff,
-			orphanEvery:          orphanEvery,
-			orphanMinAge:         orphanMinAge,
-			orphanMaxPerNode:     orphanMaxPerNode,
+			rebalanceEvery:          rebalanceEvery,
+			rebalanceMaxPerTick:     rebalanceMaxPerTick,
+			rebalanceMaxAttempts:    rebalanceMaxAttempts,
+			rebalanceBackoffBase:    rebalanceBackoffBase,
+			rebalanceBackoffMax:     rebalanceBackoffMax,
+			gcEvery:                 gcEvery,
+			gcMaxPerTick:            gcMaxPerTick,
+			gcMaxAttempts:           gcMaxAttempts,
+			gcBaseBackoff:           gcBaseBackoff,
+			gcMaxBackoff:            gcMaxBackoff,
+			orphanEvery:             orphanEvery,
+			orphanMinAge:            orphanMinAge,
+			orphanMaxPerNode:        orphanMaxPerNode,
+			rebalanceInFlight:       rebalanceInFlight,
+			gcInFlight:              gcInFlight,
+			checksumInFlight:        checksumInFlight,
+			perNodePullInFlight:     perNodePullInFlight,
+			perNodeChecksumInFlight: perNodeChecksumInFlight,
 		})
 	} else {
 		metaStore := metadata.NewStore(chunkSize, replication)
@@ -211,19 +249,24 @@ func main() {
 		store = metaStore
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
 		startSingleMasterBackgroundMaintenance(metaStore, maintenanceLoopConfig{
-			rebalanceEvery:       rebalanceEvery,
-			rebalanceMaxPerTick:  rebalanceMaxPerTick,
-			rebalanceMaxAttempts: rebalanceMaxAttempts,
-			rebalanceBackoffBase: rebalanceBackoffBase,
-			rebalanceBackoffMax:  rebalanceBackoffMax,
-			gcEvery:              gcEvery,
-			gcMaxPerTick:         gcMaxPerTick,
-			gcMaxAttempts:        gcMaxAttempts,
-			gcBaseBackoff:        gcBaseBackoff,
-			gcMaxBackoff:         gcMaxBackoff,
-			orphanEvery:          orphanEvery,
-			orphanMinAge:         orphanMinAge,
-			orphanMaxPerNode:     orphanMaxPerNode,
+			rebalanceEvery:          rebalanceEvery,
+			rebalanceMaxPerTick:     rebalanceMaxPerTick,
+			rebalanceMaxAttempts:    rebalanceMaxAttempts,
+			rebalanceBackoffBase:    rebalanceBackoffBase,
+			rebalanceBackoffMax:     rebalanceBackoffMax,
+			gcEvery:                 gcEvery,
+			gcMaxPerTick:            gcMaxPerTick,
+			gcMaxAttempts:           gcMaxAttempts,
+			gcBaseBackoff:           gcBaseBackoff,
+			gcMaxBackoff:            gcMaxBackoff,
+			orphanEvery:             orphanEvery,
+			orphanMinAge:            orphanMinAge,
+			orphanMaxPerNode:        orphanMaxPerNode,
+			rebalanceInFlight:       rebalanceInFlight,
+			gcInFlight:              gcInFlight,
+			checksumInFlight:        checksumInFlight,
+			perNodePullInFlight:     perNodePullInFlight,
+			perNodeChecksumInFlight: perNodeChecksumInFlight,
 		})
 	}
 
