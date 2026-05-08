@@ -21,6 +21,10 @@ service MasterService {
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
   rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
   rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+  // Raft membership change (leader-only, admin).
+  rpc ListMasters(ListMastersRequest) returns (ListMastersResponse);
+  rpc AddMaster(AddMasterRequest) returns (AddMasterResponse);
+  rpc RemoveMaster(RemoveMasterRequest) returns (RemoveMasterResponse);
 }
 
 message RegisterNodeRequest {
@@ -209,6 +213,34 @@ message DeleteSnapshotRequest {
 }
 
 message DeleteSnapshotResponse {}
+
+message ListMastersRequest {}
+
+message MasterPeer {
+  string node_id = 1;
+  string raft_address = 2;
+  string grpc_address = 3;
+  bool voter = 4;
+}
+
+message ListMastersResponse {
+  repeated MasterPeer masters = 1;
+  string leader_node_id = 2;
+}
+
+message AddMasterRequest {
+  string node_id = 1;
+  string raft_address = 2;
+  string grpc_address = 3;
+}
+
+message AddMasterResponse {}
+
+message RemoveMasterRequest {
+  string node_id = 1;
+}
+
+message RemoveMasterResponse {}
 
 service ChunkService {
   rpc WriteChunk(stream WriteChunkRequest) returns (WriteChunkResponse);

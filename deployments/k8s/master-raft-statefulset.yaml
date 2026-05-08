@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: godfs-master
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs-master
+spec:
+  serviceName: godfs-master-hs
+  replicas: 5
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-master
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: godfs-master
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: master
+          image: godfs-master:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 9090
+            - name: raft
+              containerPort: 9200
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: GODFS_MASTER_NODE_ID
+              value: "$(POD_NAME)"
+            - name: GODFS_MASTER_GRPC_LISTEN
+              value: "0.0.0.0:9090"
+            - name: GODFS_MASTER_RAFT_LISTEN
+              value: "0.0.0.0:9200"
+            - name: GODFS_MASTER_RAFT_DIR
+              value: "/var/lib/godfs/raft"
+            # IMPORTANT:
+            # - Enable only for the very first bootstrap of an empty cluster.
+            # - Disable afterwards so restarts use persisted raft state.
+            - name: GODFS_MASTER_BOOTSTRAP
+              value: "1"
+            - name: GODFS_MASTER_PEERS
+              value: >-
+                godfs-master-0@godfs-master-0.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-0.godfs-master-hs.godfs.svc.cluster.local:9090,
+                godfs-master-1@godfs-master-1.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-1.godfs-master-hs.godfs.svc.cluster.local:9090,
+                godfs-master-2@godfs-master-2.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-2.godfs-master-hs.godfs.svc.cluster.local:9090,
+                godfs-master-3@godfs-master-3.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-3.godfs-master-hs.godfs.svc.cluster.local:9090,
+                godfs-master-4@godfs-master-4.godfs-master-hs.godfs.svc.cluster.local:9200@godfs-master-4.godfs-master-hs.godfs.svc.cluster.local:9090
+            - name: GODFS_METRICS_LISTEN
+              value: "0.0.0.0:9091"
+            # TLS: mount secrets and set GODFS_TLS_* accordingly.
+            # Auth: use Secret for GODFS_CLUSTER_KEY / GODFS_API_KEYS / RBAC JSON.
+            # OTEL: set OTEL_EXPORTER_OTLP_ENDPOINT or GODFS_OTEL_EXPORTER_OTLP_ENDPOINT.
+          volumeMounts:
+            - name: raft
+              mountPath: /var/lib/godfs/raft
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 2
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: raft
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+

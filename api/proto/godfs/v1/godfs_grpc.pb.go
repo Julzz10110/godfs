@@ -34,6 +34,9 @@ const (
 	MasterService_ListSnapshots_FullMethodName   = "/godfs.v1.MasterService/ListSnapshots"
 	MasterService_GetSnapshot_FullMethodName     = "/godfs.v1.MasterService/GetSnapshot"
 	MasterService_DeleteSnapshot_FullMethodName  = "/godfs.v1.MasterService/DeleteSnapshot"
+	MasterService_ListMasters_FullMethodName     = "/godfs.v1.MasterService/ListMasters"
+	MasterService_AddMaster_FullMethodName       = "/godfs.v1.MasterService/AddMaster"
+	MasterService_RemoveMaster_FullMethodName    = "/godfs.v1.MasterService/RemoveMaster"
 )
 
 // MasterServiceClient is the client API for MasterService service.
@@ -56,6 +59,10 @@ type MasterServiceClient interface {
 	ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error)
 	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
 	DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*DeleteSnapshotResponse, error)
+	// Raft membership change (leader-only, admin).
+	ListMasters(ctx context.Context, in *ListMastersRequest, opts ...grpc.CallOption) (*ListMastersResponse, error)
+	AddMaster(ctx context.Context, in *AddMasterRequest, opts ...grpc.CallOption) (*AddMasterResponse, error)
+	RemoveMaster(ctx context.Context, in *RemoveMasterRequest, opts ...grpc.CallOption) (*RemoveMasterResponse, error)
 }
 
 type masterServiceClient struct {
@@ -216,6 +223,36 @@ func (c *masterServiceClient) DeleteSnapshot(ctx context.Context, in *DeleteSnap
 	return out, nil
 }
 
+func (c *masterServiceClient) ListMasters(ctx context.Context, in *ListMastersRequest, opts ...grpc.CallOption) (*ListMastersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMastersResponse)
+	err := c.cc.Invoke(ctx, MasterService_ListMasters_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *masterServiceClient) AddMaster(ctx context.Context, in *AddMasterRequest, opts ...grpc.CallOption) (*AddMasterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddMasterResponse)
+	err := c.cc.Invoke(ctx, MasterService_AddMaster_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *masterServiceClient) RemoveMaster(ctx context.Context, in *RemoveMasterRequest, opts ...grpc.CallOption) (*RemoveMasterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveMasterResponse)
+	err := c.cc.Invoke(ctx, MasterService_RemoveMaster_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MasterServiceServer is the server API for MasterService service.
 // All implementations must embed UnimplementedMasterServiceServer
 // for forward compatibility.
@@ -236,6 +273,10 @@ type MasterServiceServer interface {
 	ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error)
 	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
 	DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error)
+	// Raft membership change (leader-only, admin).
+	ListMasters(context.Context, *ListMastersRequest) (*ListMastersResponse, error)
+	AddMaster(context.Context, *AddMasterRequest) (*AddMasterResponse, error)
+	RemoveMaster(context.Context, *RemoveMasterRequest) (*RemoveMasterResponse, error)
 	mustEmbedUnimplementedMasterServiceServer()
 }
 
@@ -290,6 +331,15 @@ func (UnimplementedMasterServiceServer) GetSnapshot(context.Context, *GetSnapsho
 }
 func (UnimplementedMasterServiceServer) DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSnapshot not implemented")
+}
+func (UnimplementedMasterServiceServer) ListMasters(context.Context, *ListMastersRequest) (*ListMastersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMasters not implemented")
+}
+func (UnimplementedMasterServiceServer) AddMaster(context.Context, *AddMasterRequest) (*AddMasterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddMaster not implemented")
+}
+func (UnimplementedMasterServiceServer) RemoveMaster(context.Context, *RemoveMasterRequest) (*RemoveMasterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveMaster not implemented")
 }
 func (UnimplementedMasterServiceServer) mustEmbedUnimplementedMasterServiceServer() {}
 func (UnimplementedMasterServiceServer) testEmbeddedByValue()                       {}
@@ -582,6 +632,60 @@ func _MasterService_DeleteSnapshot_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MasterService_ListMasters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMastersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).ListMasters(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_ListMasters_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).ListMasters(ctx, req.(*ListMastersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MasterService_AddMaster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddMasterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).AddMaster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_AddMaster_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).AddMaster(ctx, req.(*AddMasterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MasterService_RemoveMaster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveMasterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).RemoveMaster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_RemoveMaster_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).RemoveMaster(ctx, req.(*RemoveMasterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MasterService_ServiceDesc is the grpc.ServiceDesc for MasterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -648,6 +752,18 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSnapshot",
 			Handler:    _MasterService_DeleteSnapshot_Handler,
+		},
+		{
+			MethodName: "ListMasters",
+			Handler:    _MasterService_ListMasters_Handler,
+		},
+		{
+			MethodName: "AddMaster",
+			Handler:    _MasterService_AddMaster_Handler,
+		},
+		{
+			MethodName: "RemoveMaster",
+			Handler:    _MasterService_RemoveMaster_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

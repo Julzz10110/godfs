@@ -22,6 +22,12 @@ type MasterServer struct {
 	Store usecase.MasterStore
 }
 
+type raftMembershipAdmin interface {
+	ListMasters(ctx context.Context) ([]domain.MasterPeer, domain.NodeID, error)
+	AddMaster(ctx context.Context, nodeID domain.NodeID, raftAddr, grpcAddr string) error
+	RemoveMaster(ctx context.Context, nodeID domain.NodeID) error
+}
+
 type leaderAware interface {
 	IsLeader() bool
 	LeaderGRPCAddr() string
@@ -319,6 +325,59 @@ func (m *MasterServer) DeleteSnapshot(ctx context.Context, req *godfsv1.DeleteSn
 		return nil, mapErr(err)
 	}
 	return &godfsv1.DeleteSnapshotResponse{}, nil
+}
+
+func (m *MasterServer) ListMasters(ctx context.Context, _ *godfsv1.ListMastersRequest) (*godfsv1.ListMastersResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	admin, ok := m.Store.(raftMembershipAdmin)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "raft membership admin not supported")
+	}
+	peers, leaderID, err := admin.ListMasters(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*godfsv1.MasterPeer, 0, len(peers))
+	for i := range peers {
+		p := peers[i]
+		out = append(out, &godfsv1.MasterPeer{
+			NodeId:      string(p.NodeID),
+			RaftAddress: p.RaftAddress,
+			GrpcAddress: p.GRPCAddress,
+			Voter:       p.Voter,
+		})
+	}
+	return &godfsv1.ListMastersResponse{Masters: out, LeaderNodeId: string(leaderID)}, nil
+}
+
+func (m *MasterServer) AddMaster(ctx context.Context, req *godfsv1.AddMasterRequest) (*godfsv1.AddMasterResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	admin, ok := m.Store.(raftMembershipAdmin)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "raft membership admin not supported")
+	}
+	if err := admin.AddMaster(ctx, domain.NodeID(req.GetNodeId()), req.GetRaftAddress(), req.GetGrpcAddress()); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.AddMasterResponse{}, nil
+}
+
+func (m *MasterServer) RemoveMaster(ctx context.Context, req *godfsv1.RemoveMasterRequest) (*godfsv1.RemoveMasterResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	admin, ok := m.Store.(raftMembershipAdmin)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "raft membership admin not supported")
+	}
+	if err := admin.RemoveMaster(ctx, domain.NodeID(req.GetNodeId())); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.RemoveMasterResponse{}, nil
 }
 
 func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {

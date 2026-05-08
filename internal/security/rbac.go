@@ -123,6 +123,8 @@ func PermFromMethod(fullMethod string) Perm {
 		return PermRead
 	case "/godfs.v1.MasterService/CreateSnapshot", "/godfs.v1.MasterService/DeleteSnapshot":
 		return PermAdmin
+	case "/godfs.v1.MasterService/ListMasters", "/godfs.v1.MasterService/AddMaster", "/godfs.v1.MasterService/RemoveMaster":
+		return PermAdmin
 	default:
 		return PermAdmin
 	}

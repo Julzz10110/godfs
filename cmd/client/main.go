@@ -159,6 +159,39 @@ func main() {
 		default:
 			log.Fatalf("unknown snapshot subcommand %q", args[1])
 		}
+	case "masters":
+		if len(args) < 2 {
+			log.Fatal("masters <list|add|remove> ...")
+		}
+		switch args[1] {
+		case "list":
+			var peers []*godfsv1.MasterPeer
+			var leader string
+			peers, leader, err = c.ListMasters(ctx)
+			if err != nil {
+				break
+			}
+			fmt.Printf("leader_node_id=%s\n", leader)
+			for _, p := range peers {
+				role := "nonvoter"
+				if p.GetVoter() {
+					role = "voter"
+				}
+				fmt.Printf("%s\t%s\t%s\t%s\n", p.GetNodeId(), p.GetRaftAddress(), p.GetGrpcAddress(), role)
+			}
+		case "add":
+			if len(args) != 5 {
+				log.Fatal("masters add <node_id> <raft_addr> <grpc_addr>")
+			}
+			err = c.AddMaster(ctx, args[2], args[3], args[4])
+		case "remove":
+			if len(args) != 3 {
+				log.Fatal("masters remove <node_id>")
+			}
+			err = c.RemoveMaster(ctx, args[2])
+		default:
+			log.Fatalf("unknown masters subcommand %q", args[1])
+		}
 	default:
 		log.Fatalf("unknown command %q", args[0])
 	}

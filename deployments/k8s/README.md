@@ -1,6 +1,6 @@
 # Kubernetes
 
-Apply manifests in order:
+Apply manifests in order (single-node example):
 
 ```bash
 kubectl apply -f namespace.yaml
@@ -8,6 +8,36 @@ kubectl apply -f master.yaml
 kubectl apply -f chunkserver.yaml
 kubectl apply -f restgateway.yaml
 ```
+
+## Raft Masters (5 pods + PVC)
+
+Manifests:
+
+```bash
+kubectl apply -f namespace.yaml
+kubectl apply -f master-raft-services.yaml
+kubectl apply -f master-raft-pdb.yaml
+kubectl apply -f master-raft-statefulset.yaml
+kubectl apply -f chunkserver.yaml
+kubectl apply -f restgateway.yaml
+```
+
+### Bootstrap (first start only)
+
+- `master-raft-statefulset.yaml` ships with `GODFS_MASTER_BOOTSTRAP=1` **enabled** to bootstrap an empty cluster.
+- After the first successful leader election, **disable bootstrap** (set `GODFS_MASTER_BOOTSTRAP` to empty/remove it) and re-apply the manifest:
+
+```bash
+kubectl apply -f master-raft-statefulset.yaml
+```
+
+Subsequent restarts must rely on the persisted Raft state under `GODFS_MASTER_RAFT_DIR` (PVC).
+
+### Rolling updates / restarts
+
+- Keep quorum: do not restart more than 2 masters at once.
+- PDB (`master-raft-pdb.yaml`) enforces `minAvailable: 3`.
+- Recommended: update one pod at a time and verify a leader exists.
 
 Build and load images into your cluster (names must match `image:` fields):
 
@@ -21,7 +51,7 @@ Production checklist:
 
 - TLS certificates via `Secret` volumes; set `GODFS_TLS_*` accordingly.
 - Cluster auth: `GODFS_CLUSTER_KEY` (and user keys / RBAC) from `Secret`.
-- Raft: replace single `Deployment` with `StatefulSet` for masters, persistent volumes for `GODFS_MASTER_RAFT_DIR`.
+- Raft: use `StatefulSet` for masters and PVC for `GODFS_MASTER_RAFT_DIR` (see `master-raft-*.yaml`).
 - REST gateway (`godfs-restgateway`): HTTP on port **8080**, scrape **`godfs-restgateway:9091/metrics`** when `GODFS_METRICS_LISTEN` is set. Expose HTTP via `Ingress` or `LoadBalancer` and terminate TLS at the edge; clients send **`Authorization: Bearer …`** (see `docs/EXTERNAL_ACCESS.md`).
 - Prometheus `ServiceMonitor` can scrape `godfs-master:9091/metrics`, `godfs-chunk:9091/metrics`, and the REST gateway metrics port when enabled.
 - Tracing: set `OTEL_EXPORTER_OTLP_ENDPOINT` (gRPC, default port 4317) on pods.

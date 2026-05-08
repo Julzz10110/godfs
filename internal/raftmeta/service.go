@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ type Service struct {
 	fsm  *FSM
 
 	leaderGrpcByRaftAddr map[string]string // raftAddr -> grpcAddr (best-effort redirect)
+	leaderMapMu          sync.RWMutex
 
 	checksumVerifier ChecksumVerifier
 }
@@ -43,6 +45,8 @@ func (s *Service) LeaderGRPCAddr() string {
 	if ldr == "" {
 		return ""
 	}
+	s.leaderMapMu.RLock()
+	defer s.leaderMapMu.RUnlock()
 	if s.leaderGrpcByRaftAddr == nil {
 		return ""
 	}
@@ -50,6 +54,18 @@ func (s *Service) LeaderGRPCAddr() string {
 		return v
 	}
 	return ""
+}
+
+func (s *Service) setPeerGRPCAddr(raftAddr, grpcAddr string) {
+	if raftAddr == "" || grpcAddr == "" {
+		return
+	}
+	s.leaderMapMu.Lock()
+	defer s.leaderMapMu.Unlock()
+	if s.leaderGrpcByRaftAddr == nil {
+		s.leaderGrpcByRaftAddr = map[string]string{}
+	}
+	s.leaderGrpcByRaftAddr[raftAddr] = grpcAddr
 }
 
 func (s *Service) apply(ctx context.Context, b []byte) (any, error) {
@@ -326,6 +342,115 @@ func (s *Service) SnapshotChunkIDs() map[domain.ChunkID]struct{} {
 		out[cid] = struct{}{}
 	}
 	return out
+}
+
+func (s *Service) ListMasters(ctx context.Context) ([]domain.MasterPeer, domain.NodeID, error) {
+	if s.raft.State() != raft.Leader {
+		return nil, "", domain.ErrNotLeader
+	}
+	f := s.raft.GetConfiguration()
+	errCh := make(chan error, 1)
+	go func() { errCh <- f.Error() }()
+	select {
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	case err := <-errCh:
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	cfg := f.Configuration()
+	leaderAddr := string(s.raft.Leader())
+	var leaderID domain.NodeID
+	peers := make([]domain.MasterPeer, 0, len(cfg.Servers))
+	for _, srv := range cfg.Servers {
+		raftAddr := string(srv.Address)
+		voter := srv.Suffrage == raft.Voter
+		grpcAddr := ""
+		s.leaderMapMu.RLock()
+		if s.leaderGrpcByRaftAddr != nil {
+			grpcAddr = s.leaderGrpcByRaftAddr[raftAddr]
+		}
+		s.leaderMapMu.RUnlock()
+		if raftAddr == leaderAddr {
+			leaderID = domain.NodeID(string(srv.ID))
+		}
+		peers = append(peers, domain.MasterPeer{
+			NodeID:      domain.NodeID(string(srv.ID)),
+			RaftAddress: raftAddr,
+			GRPCAddress: grpcAddr,
+			Voter:       voter,
+		})
+	}
+	return peers, leaderID, nil
+}
+
+func (s *Service) AddMaster(ctx context.Context, nodeID domain.NodeID, raftAddr, grpcAddr string) error {
+	if s.raft.State() != raft.Leader {
+		return domain.ErrNotLeader
+	}
+	if nodeID == "" || raftAddr == "" {
+		return fmt.Errorf("node_id and raft_address required")
+	}
+	if grpcAddr != "" {
+		s.setPeerGRPCAddr(raftAddr, grpcAddr)
+	}
+	f := s.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(raftAddr), 0, 10*time.Second)
+	errCh := make(chan error, 1)
+	go func() { errCh <- f.Error() }()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
+}
+
+func (s *Service) RemoveMaster(ctx context.Context, nodeID domain.NodeID) error {
+	if s.raft.State() != raft.Leader {
+		return domain.ErrNotLeader
+	}
+	if nodeID == "" {
+		return fmt.Errorf("node_id required")
+	}
+	// Prevent shrinking below 3 voters (production baseline safety).
+	{
+		fc := s.raft.GetConfiguration()
+		errCh := make(chan error, 1)
+		go func() { errCh <- fc.Error() }()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		}
+		cfg := fc.Configuration()
+		voters := 0
+		isVoter := false
+		for _, srv := range cfg.Servers {
+			if srv.Suffrage == raft.Voter {
+				voters++
+				if string(srv.ID) == string(nodeID) {
+					isVoter = true
+				}
+			}
+		}
+		if isVoter && voters-1 < 3 {
+			return fmt.Errorf("refusing to remove voter: would leave %d voters (<3)", voters-1)
+		}
+	}
+
+	f := s.raft.RemoveServer(raft.ServerID(nodeID), 0, 10*time.Second)
+	errCh := make(chan error, 1)
+	go func() { errCh <- f.Error() }()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
 }
 
 // CreateSnapshot applies a new backup manifest on the leader.
