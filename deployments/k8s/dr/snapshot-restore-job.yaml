@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: godfs-snapshot-restore
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restore
+          image: godfs-client:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GODFS_CLIENT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: godfs-client-auth
+                  key: api_key
+            - name: GODFS_MASTER_ADDR
+              value: "godfs-master:9090"
+            - name: GODFS_MANIFEST_PATH
+              value: "/backup/manifest.json"
+          volumeMounts:
+            - name: backup
+              mountPath: /backup
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              test -f "${GODFS_MANIFEST_PATH}"
+              /usr/local/bin/godfs-client --master "${GODFS_MASTER_ADDR}" snapshot restore "${GODFS_MANIFEST_PATH}" --force
+      volumes:
+        - name: backup
+          persistentVolumeClaim:
+            claimName: godfs-backup-pvc
+

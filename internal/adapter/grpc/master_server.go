@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"time"
 
@@ -327,6 +328,20 @@ func (m *MasterServer) DeleteSnapshot(ctx context.Context, req *godfsv1.DeleteSn
 	return &godfsv1.DeleteSnapshotResponse{}, nil
 }
 
+func (m *MasterServer) RestoreSnapshot(ctx context.Context, req *godfsv1.RestoreSnapshotRequest) (*godfsv1.RestoreSnapshotResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	man, err := backupSnapshotFromProto(req.GetManifest())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := m.Store.RestoreSnapshot(ctx, man, req.GetForce()); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.RestoreSnapshotResponse{}, nil
+}
+
 func (m *MasterServer) ListMasters(ctx context.Context, _ *godfsv1.ListMastersRequest) (*godfsv1.ListMastersResponse, error) {
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
@@ -417,4 +432,53 @@ func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
 		ReplicationFactor: int32(m.ReplicationFactor),
 		Files:             files,
 	}
+}
+
+func backupSnapshotFromProto(m *godfsv1.BackupManifest) (*domain.BackupSnapshot, error) {
+	if m == nil {
+		return nil, fmt.Errorf("manifest required")
+	}
+	out := &domain.BackupSnapshot{
+		ID:                m.GetSnapshotId(),
+		Label:             m.GetLabel(),
+		CreatedAt:         time.Unix(m.GetCreatedAtUnix(), 0).UTC(),
+		ChunkSize:         m.GetChunkSizeBytes(),
+		ReplicationFactor: int(m.GetReplicationFactor()),
+	}
+	for _, f := range m.GetFiles() {
+		if f == nil {
+			continue
+		}
+		fe := domain.BackupFileEntry{
+			Path:       f.GetPath(),
+			Size:       f.GetSize(),
+			Mode:       f.GetMode(),
+			CreatedAt:  time.Unix(f.GetCreatedAtUnix(), 0).UTC(),
+			ModifiedAt: time.Unix(f.GetModifiedAtUnix(), 0).UTC(),
+		}
+		for _, c := range f.GetChunks() {
+			if c == nil {
+				continue
+			}
+			reps := make([]domain.ChunkReplica, 0, len(c.GetReplicas()))
+			for _, r := range c.GetReplicas() {
+				if r == nil {
+					continue
+				}
+				reps = append(reps, domain.ChunkReplica{
+					NodeID:   domain.NodeID(r.GetNodeId()),
+					Address: r.GetGrpcAddress(),
+				})
+			}
+			fe.Chunks = append(fe.Chunks, domain.BackupChunkRef{
+				ChunkID:    domain.ChunkID(c.GetChunkId()),
+				ChunkIndex: c.GetChunkIndex(),
+				Version:    c.GetVersion(),
+				Checksum:   append([]byte(nil), c.GetChecksumSha256()...),
+				Replicas:   reps,
+			})
+		}
+		out.Files = append(out.Files, fe)
+	}
+	return out, nil
 }

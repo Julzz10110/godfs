@@ -102,7 +102,7 @@ func main() {
 		fmt.Printf("is_dir=%v size=%d mode=%o mod=%s\n", st.IsDir, st.Size, st.Mode, st.ModTime)
 	case "snapshot":
 		if len(args) < 2 {
-			log.Fatal("snapshot <create|list|get|delete> ...")
+			log.Fatal("snapshot <create|list|get|delete|restore> ...")
 		}
 		switch args[1] {
 		case "create":
@@ -156,6 +156,28 @@ func main() {
 				log.Fatal("snapshot delete <snapshot_id>")
 			}
 			err = c.DeleteSnapshot(ctx, args[2])
+		case "restore":
+			if len(args) < 3 || len(args) > 4 {
+				log.Fatal("snapshot restore <manifest.json> [--force]")
+			}
+			force := false
+			if len(args) == 4 {
+				if args[3] != "--force" {
+					log.Fatal("snapshot restore <manifest.json> [--force]")
+				}
+				force = true
+			}
+			b, rerr := os.ReadFile(args[2])
+			if rerr != nil {
+				err = rerr
+				break
+			}
+			var man godfsv1.BackupManifest
+			if uerr := protojson.Unmarshal(b, &man); uerr != nil {
+				err = uerr
+				break
+			}
+			err = c.RestoreSnapshot(ctx, &man, force)
 		default:
 			log.Fatalf("unknown snapshot subcommand %q", args[1])
 		}

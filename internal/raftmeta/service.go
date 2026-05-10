@@ -503,6 +503,22 @@ func (s *Service) DeleteSnapshot(ctx context.Context, id string) error {
 	return err
 }
 
+// RestoreSnapshot restores metadata from a backup manifest (leader-only).
+func (s *Service) RestoreSnapshot(ctx context.Context, manifest *domain.BackupSnapshot, force bool) error {
+	if s.raft.State() != raft.Leader {
+		return domain.ErrNotLeader
+	}
+	b, err := encodeCommand(cmdRestoreSnapshot, struct {
+		Manifest *domain.BackupSnapshot
+		Force    bool
+	}{Manifest: manifest, Force: force})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
 // ParsePeers parses a comma-separated list of peers.
 // Supported formats:
 // - nodeID@raftAddr

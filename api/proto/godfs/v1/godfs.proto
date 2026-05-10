@@ -21,6 +21,8 @@ service MasterService {
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
   rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
   rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+  // Restore metadata from a backup manifest (leader-only, admin).
+  rpc RestoreSnapshot(RestoreSnapshotRequest) returns (RestoreSnapshotResponse);
   // Raft membership change (leader-only, admin).
   rpc ListMasters(ListMastersRequest) returns (ListMastersResponse);
   rpc AddMaster(AddMasterRequest) returns (AddMasterResponse);
@@ -213,6 +215,16 @@ message DeleteSnapshotRequest {
 }
 
 message DeleteSnapshotResponse {}
+
+message RestoreSnapshotRequest {
+  // Manifest produced by GetSnapshot (or archived JSON form).
+  BackupManifest manifest = 1;
+  // If true, clears existing metadata (namespace + chunk map) before restore.
+  // If false, restore only allowed when namespace is empty.
+  bool force = 2;
+}
+
+message RestoreSnapshotResponse {}
 
 message ListMastersRequest {}
 

@@ -217,6 +217,16 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return f.st.DeleteBackupSnapshot(req.ID)
 
+	case cmdRestoreSnapshot:
+		var req struct {
+			Manifest *domain.BackupSnapshot
+			Force    bool
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		return f.st.RestoreSnapshot(req.Manifest, req.Force)
+
 	default:
 		return fmt.Errorf("unknown command type: %s", env.Type)
 	}

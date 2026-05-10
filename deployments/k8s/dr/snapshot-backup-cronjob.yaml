@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: godfs-snapshot-backup
+spec:
+  schedule: "0 2 * * *" # daily at 02:00
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: godfs-client:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: GODFS_CLIENT_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: godfs-client-auth
+                      key: api_key
+                - name: GODFS_MASTER_ADDR
+                  value: "godfs-master:9090"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  label="daily-${ts}"
+                  id="$(/usr/local/bin/godfs-client --master "${GODFS_MASTER_ADDR}" snapshot create "${label}" | sed -n 's/^snapshot_id=\\([^ ]*\\).*/\\1/p')"
+                  test -n "${id}"
+                  out="/backup/godfs-${label}-${id}.json"
+                  /usr/local/bin/godfs-client --master "${GODFS_MASTER_ADDR}" snapshot get "${id}" "${out}"
+                  echo "wrote ${out}"
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: godfs-backup-pvc
+

@@ -22,6 +22,7 @@ const (
 	cmdClearRebalanceTask commandType = "clear_rebalance_task"
 	cmdCreateSnapshot     commandType = "create_snapshot"
 	cmdDeleteSnapshot     commandType = "delete_snapshot"
+	cmdRestoreSnapshot    commandType = "restore_snapshot"
 )
 
 type commandEnvelope struct {

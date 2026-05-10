@@ -55,3 +55,11 @@ func (c *Client) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 		return err
 	})
 }
+
+// RestoreSnapshot restores metadata from a backup manifest (admin-only; leader-only in Raft mode).
+func (c *Client) RestoreSnapshot(ctx context.Context, manifest *godfsv1.BackupManifest, force bool) error {
+	return grpcRetry(ctx, 3, func() error {
+		_, err := c.master.RestoreSnapshot(ctx, &godfsv1.RestoreSnapshotRequest{Manifest: manifest, Force: force})
+		return err
+	})
+}

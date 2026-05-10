@@ -52,5 +52,9 @@ type MasterStore interface {
 	ListSnapshots(ctx context.Context) ([]domain.SnapshotInfo, error)
 	GetSnapshot(ctx context.Context, snapshotID string) (*domain.BackupSnapshot, error)
 	DeleteSnapshot(ctx context.Context, snapshotID string) error
+
+	// RestoreSnapshot rebuilds metadata state from a backup manifest.
+	// If force is false, restore is only allowed when the namespace is empty.
+	RestoreSnapshot(ctx context.Context, manifest *domain.BackupSnapshot, force bool) error
 }
 
