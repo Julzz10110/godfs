@@ -1,0 +1,126 @@
+{{- if .Values.raft.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "godfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  serviceName: {{ .Release.Name }}-master-hs
+  replicas: {{ .Values.raft.replicas }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "godfs.labels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        {{- include "godfs.labels" . | nindent 8 }}
+        app.kubernetes.io/component: master
+    spec:
+      terminationGracePeriodSeconds: 30
+      {{- if .Values.tls.enabled }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+            optional: true
+      {{- end }}
+      containers:
+        - name: master
+          image: {{ .Values.images.master }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.master.grpcPort }}
+            - name: raft
+              containerPort: {{ .Values.master.raftPort }}
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: GODFS_MASTER_NODE_ID
+              value: "$(POD_NAME)"
+            - name: GODFS_MASTER_GRPC_LISTEN
+              value: "0.0.0.0:{{ .Values.master.grpcPort }}"
+            - name: GODFS_MASTER_RAFT_LISTEN
+              value: "0.0.0.0:{{ .Values.master.raftPort }}"
+            - name: GODFS_MASTER_RAFT_DIR
+              value: "{{ .Values.raft.raftDir }}"
+            - name: GODFS_MASTER_BOOTSTRAP
+              value: {{ ternary "1" "0" .Values.raft.bootstrap | quote }}
+            - name: GODFS_MASTER_PEERS
+              value: >-
+                {{- $ns := .Values.namespace -}}
+                {{- $rel := .Release.Name -}}
+                {{- $raftPort := .Values.master.raftPort -}}
+                {{- $grpcPort := .Values.master.grpcPort -}}
+                {{- range $i, $e := until (.Values.raft.replicas | int) -}}
+                {{- if $i }},{{ end -}}
+                {{ $rel }}-master-{{ $i }}@{{ $rel }}-master-{{ $i }}.{{ $rel }}-master-hs.{{ $ns }}.svc.cluster.local:{{ $raftPort }}@{{ $rel }}-master-{{ $i }}.{{ $rel }}-master-hs.{{ $ns }}.svc.cluster.local:{{ $grpcPort }}
+                {{- end -}}
+            - name: GODFS_METRICS_LISTEN
+              value: {{ .Values.metrics.listen | quote }}
+            {{- if .Values.tls.enabled }}
+            - name: GODFS_TLS_ENABLED
+              value: "1"
+            - name: GODFS_TLS_CERT_FILE
+              value: "{{ .Values.tls.mountPath }}/tls.crt"
+            - name: GODFS_TLS_KEY_FILE
+              value: "{{ .Values.tls.mountPath }}/tls.key"
+            - name: GODFS_TLS_CA_FILE
+              value: "{{ .Values.tls.mountPath }}/ca.crt"
+            - name: GODFS_TLS_RELOAD
+              value: {{ ternary "1" "0" .Values.tls.reload | quote }}
+            - name: GODFS_TLS_RELOAD_INTERVAL
+              value: {{ .Values.tls.reloadInterval | quote }}
+            {{- end }}
+            - name: GODFS_CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.secretName }}
+                  key: {{ .Values.auth.clusterKeyKey }}
+                  optional: true
+            - name: GODFS_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.secretName }}
+                  key: {{ .Values.auth.apiKeysKey }}
+                  optional: true
+            - name: GODFS_RBAC_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.secretName }}
+                  key: {{ .Values.auth.rbacJSONKey }}
+                  optional: true
+          volumeMounts:
+            - name: raft
+              mountPath: {{ .Values.raft.raftDir }}
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 2
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: raft
+      spec:
+        accessModes: {{ toYaml .Values.raft.storage.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.raft.storage.size | quote }}
+{{- end }}
+

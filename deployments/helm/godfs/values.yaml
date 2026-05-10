@@ -1,0 +1,48 @@
+namespace: godfs
+
+images:
+  master: godfs-master:latest
+  chunk: godfs-chunkserver:latest
+  restgateway: godfs-restgateway:latest
+
+replicas:
+  chunk: 1
+  restgateway: 1
+
+raft:
+  enabled: true
+  replicas: 5
+  bootstrap: true
+  raftDir: /var/lib/godfs/raft
+  storage:
+    size: 1Gi
+    accessModes: ["ReadWriteOnce"]
+
+metrics:
+  enabled: true
+  listen: "0.0.0.0:9091"
+
+tls:
+  enabled: true
+  reload: true
+  reloadInterval: 5s
+  mountPath: /etc/godfs/tls
+  secretName: godfs-tls
+
+auth:
+  secretName: godfs-auth
+  clusterKeyKey: GODFS_CLUSTER_KEY
+  apiKeysKey: GODFS_API_KEYS
+  rbacJSONKey: GODFS_RBAC_JSON
+
+master:
+  grpcPort: 9090
+  raftPort: 9200
+
+chunk:
+  grpcPort: 8000
+  dataDir: /var/lib/godfs/data
+
+restgateway:
+  httpPort: 8080
+
