@@ -159,11 +159,14 @@ func main() {
 		log.Fatalf("audit: %v", err)
 	}
 	chunkAudit := security.ChunkAuditEnabledFromEnv()
+	var unary []grpc.UnaryServerInterceptor
+	unary = append(unary, observability.GRPCUnaryPrometheusInterceptor())
+	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
+		unary = append(unary, rl)
+	}
+	unary = append(unary, grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit))
 	serverOpts = append(serverOpts,
-		grpc.ChainUnaryInterceptor(
-			observability.GRPCUnaryPrometheusInterceptor(),
-			grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit),
-		),
+		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(
 			observability.GRPCStreamPrometheusInterceptor(),
 			grpcsvc.NewChunkStreamInterceptor(clusterKey, audit, chunkAudit),

@@ -127,6 +127,8 @@ func PermFromMethod(fullMethod string) Perm {
 		return PermAdmin
 	case "/godfs.v1.MasterService/ListMasters", "/godfs.v1.MasterService/AddMaster", "/godfs.v1.MasterService/RemoveMaster":
 		return PermAdmin
+	case "/godfs.v1.MasterService/ListChunkNodes":
+		return PermAdmin
 	default:
 		return PermAdmin
 	}
@@ -136,4 +138,3 @@ func PermFromMethod(fullMethod string) Perm {
 func IsRename(fullMethod string) bool {
 	return fullMethod == "/godfs.v1.MasterService/Rename"
 }
-

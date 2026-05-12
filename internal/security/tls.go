@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -42,21 +43,19 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// ServerTransportCredentials returns TLS server credentials (TLS 1.3+).
+// buildServerTLSConfig returns a tls.Config for gRPC or net/http listeners (TLS 1.3+).
 // If CAFile is set, mTLS is required (RequireAndVerifyClientCert).
-func ServerTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
+func buildServerTLSConfig(cfg TLSConfig) (*tls.Config, error) {
 	if tlsReloadEnabled() {
 		r, err := newCertReloader(cfg)
 		if err != nil {
 			return nil, err
 		}
-		// Use GetConfigForClient so ClientCAs can rotate too.
-		tlsConf := &tls.Config{
-			MinVersion:       tls.VersionTLS13,
-			GetCertificate:   r.getServerCert,
+		return &tls.Config{
+			MinVersion:         tls.VersionTLS13,
+			GetCertificate:     r.getServerCert,
 			GetConfigForClient: r.serverConfigForClient,
-		}
-		return credentials.NewTLS(tlsConf), nil
+		}, nil
 	}
 
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
@@ -79,7 +78,30 @@ func ServerTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials
 		tlsConf.ClientCAs = pool
 		tlsConf.ClientAuth = tls.RequireAndVerifyClientCert
 	}
+	return tlsConf, nil
+}
+
+// ServerTransportCredentials returns TLS server credentials (TLS 1.3+).
+// If CAFile is set, mTLS is required (RequireAndVerifyClientCert).
+func ServerTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
+	tlsConf, err := buildServerTLSConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return credentials.NewTLS(tlsConf), nil
+}
+
+// HTTPServerTLSConfig returns a *tls.Config for net/http when cfg.Enabled.
+// When cfg.Enabled is false, returns (nil, nil) for plain HTTP.
+// When enabled, CertFile and KeyFile must be non-empty.
+func HTTPServerTLSConfig(cfg TLSConfig) (*tls.Config, error) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+	if cfg.CertFile == "" || cfg.KeyFile == "" {
+		return nil, fmt.Errorf("HTTPS requires certificate and key file paths")
+	}
+	return buildServerTLSConfig(cfg)
 }
 
 // ClientTransportCredentials returns TLS client credentials; optional mTLS if client cert+key set.

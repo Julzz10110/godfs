@@ -56,5 +56,7 @@ type MasterStore interface {
 	// RestoreSnapshot rebuilds metadata state from a backup manifest.
 	// If force is false, restore is only allowed when the namespace is empty.
 	RestoreSnapshot(ctx context.Context, manifest *domain.BackupSnapshot, force bool) error
-}
 
+	// ListChunkNodes returns registered chunk servers and best-effort liveness (operator diagnostics).
+	ListChunkNodes(ctx context.Context) ([]domain.ChunkNodeDiag, error)
+}

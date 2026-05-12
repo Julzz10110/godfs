@@ -10,6 +10,7 @@ import (
 	"godfs/internal/config"
 	"godfs/internal/observability"
 	"godfs/internal/restgateway"
+	"godfs/internal/security"
 	"godfs/pkg/client"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -65,8 +66,16 @@ func main() {
 	}
 	restgateway.HTTPServerTimeoutsFromEnv(httpSrv)
 
-	log.Printf("goDFS REST gateway listening on %s (master gRPC %s)", listen, master)
-	if err := httpSrv.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	listenTLS := security.LoadRESTListenTLSFromEnv()
+	httpTLS, err := security.HTTPServerTLSConfig(listenTLS)
+	if err != nil {
+		log.Fatalf("rest https: %v", err)
 	}
+	if httpTLS != nil {
+		httpSrv.TLSConfig = httpTLS
+		log.Printf("goDFS REST gateway listening on %s (HTTPS, master gRPC %s)", listen, master)
+		log.Fatal(httpSrv.ListenAndServeTLS("", ""))
+	}
+	log.Printf("goDFS REST gateway listening on %s (HTTP, master gRPC %s)", listen, master)
+	log.Fatal(httpSrv.ListenAndServe())
 }

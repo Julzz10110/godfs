@@ -22,6 +22,7 @@ func main() {
 	args := pflag.Args()
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: godfs-client [--master addr] <command> [args]")
+		fmt.Fprintln(os.Stderr, "commands: mkdir create write read rm mv ls stat snapshot masters nodes")
 		os.Exit(2)
 	}
 
@@ -180,6 +181,20 @@ func main() {
 			err = c.RestoreSnapshot(ctx, &man, force)
 		default:
 			log.Fatalf("unknown snapshot subcommand %q", args[1])
+		}
+	case "nodes":
+		var nodes []*godfsv1.ChunkNodeEntry
+		nodes, err = c.ListChunkNodes(ctx)
+		if err != nil {
+			break
+		}
+		for _, n := range nodes {
+			a := "dead"
+			if n.GetAlive() {
+				a = "alive"
+			}
+			fmt.Printf("%s\t%s\tcap=%d\tused=%d\tlast_seen=%d\t%s\n",
+				n.GetNodeId(), n.GetGrpcAddress(), n.GetCapacityBytes(), n.GetUsedBytes(), n.GetLastSeenUnix(), a)
 		}
 	case "masters":
 		if len(args) < 2 {

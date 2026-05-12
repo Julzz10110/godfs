@@ -38,13 +38,23 @@ Notes:
 
 ## TLS / mTLS
 
-### Server-side TLS (Master/Chunk/REST)
+### Server-side TLS (Master/Chunk)
 
 Set:
 
 - `GODFS_TLS_ENABLED=1`
 - `GODFS_TLS_CERT_FILE`, `GODFS_TLS_KEY_FILE`
 - `GODFS_TLS_CA_FILE` (enables **mTLS**: server verifies client certs)
+
+### REST gateway inbound HTTPS (optional)
+
+Independent of the gRPC client settings to the master:
+
+- `GODFS_REST_HTTPS_ENABLED=1`
+- `GODFS_REST_TLS_CERT_FILE`, `GODFS_REST_TLS_KEY_FILE` (or fall back to `GODFS_TLS_CERT_FILE` / `GODFS_TLS_KEY_FILE` when REST-specific paths are empty)
+- Optional mTLS for HTTP clients calling the gateway: `GODFS_REST_TLS_CA_FILE`
+
+Hot reload for REST server cert/key and REST client CA uses the same `GODFS_TLS_RELOAD` / `GODFS_TLS_RELOAD_INTERVAL` as gRPC.
 
 ### Client-side TLS (internal clients and end-user SDK)
 
@@ -66,6 +76,15 @@ Server supports hot reload for both:
 Client supports hot reload for:
 
 - mTLS client cert/key
+
+### gRPC abuse limits (optional)
+
+Master and Chunk unary RPCs (process-wide token bucket):
+
+- `GODFS_GRPC_RATE_LIMIT_RPS` — requests/sec (omit or `0` to disable)
+- `GODFS_GRPC_RATE_LIMIT_BURST` — token bucket burst (default `max(10, ceil(2*RPS))`)
+
+On the **Master**, `RegisterNode` and `Heartbeat` are **exempt** so chunk clusters are not starved by the same bucket as user metadata RPCs. Streaming RPCs on Chunk are not limited by this env (baseline).
 
 ## Secrets in Kubernetes (External Secrets baseline)
 

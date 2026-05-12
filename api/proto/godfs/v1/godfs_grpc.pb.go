@@ -38,6 +38,7 @@ const (
 	MasterService_ListMasters_FullMethodName     = "/godfs.v1.MasterService/ListMasters"
 	MasterService_AddMaster_FullMethodName       = "/godfs.v1.MasterService/AddMaster"
 	MasterService_RemoveMaster_FullMethodName    = "/godfs.v1.MasterService/RemoveMaster"
+	MasterService_ListChunkNodes_FullMethodName  = "/godfs.v1.MasterService/ListChunkNodes"
 )
 
 // MasterServiceClient is the client API for MasterService service.
@@ -66,6 +67,8 @@ type MasterServiceClient interface {
 	ListMasters(ctx context.Context, in *ListMastersRequest, opts ...grpc.CallOption) (*ListMastersResponse, error)
 	AddMaster(ctx context.Context, in *AddMasterRequest, opts ...grpc.CallOption) (*AddMasterResponse, error)
 	RemoveMaster(ctx context.Context, in *RemoveMasterRequest, opts ...grpc.CallOption) (*RemoveMasterResponse, error)
+	// Registered chunk nodes + liveness (admin-only; read-only on current metadata state).
+	ListChunkNodes(ctx context.Context, in *ListChunkNodesRequest, opts ...grpc.CallOption) (*ListChunkNodesResponse, error)
 }
 
 type masterServiceClient struct {
@@ -266,6 +269,16 @@ func (c *masterServiceClient) RemoveMaster(ctx context.Context, in *RemoveMaster
 	return out, nil
 }
 
+func (c *masterServiceClient) ListChunkNodes(ctx context.Context, in *ListChunkNodesRequest, opts ...grpc.CallOption) (*ListChunkNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChunkNodesResponse)
+	err := c.cc.Invoke(ctx, MasterService_ListChunkNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MasterServiceServer is the server API for MasterService service.
 // All implementations must embed UnimplementedMasterServiceServer
 // for forward compatibility.
@@ -292,6 +305,8 @@ type MasterServiceServer interface {
 	ListMasters(context.Context, *ListMastersRequest) (*ListMastersResponse, error)
 	AddMaster(context.Context, *AddMasterRequest) (*AddMasterResponse, error)
 	RemoveMaster(context.Context, *RemoveMasterRequest) (*RemoveMasterResponse, error)
+	// Registered chunk nodes + liveness (admin-only; read-only on current metadata state).
+	ListChunkNodes(context.Context, *ListChunkNodesRequest) (*ListChunkNodesResponse, error)
 	mustEmbedUnimplementedMasterServiceServer()
 }
 
@@ -358,6 +373,9 @@ func (UnimplementedMasterServiceServer) AddMaster(context.Context, *AddMasterReq
 }
 func (UnimplementedMasterServiceServer) RemoveMaster(context.Context, *RemoveMasterRequest) (*RemoveMasterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveMaster not implemented")
+}
+func (UnimplementedMasterServiceServer) ListChunkNodes(context.Context, *ListChunkNodesRequest) (*ListChunkNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListChunkNodes not implemented")
 }
 func (UnimplementedMasterServiceServer) mustEmbedUnimplementedMasterServiceServer() {}
 func (UnimplementedMasterServiceServer) testEmbeddedByValue()                       {}
@@ -722,6 +740,24 @@ func _MasterService_RemoveMaster_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MasterService_ListChunkNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChunkNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).ListChunkNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_ListChunkNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).ListChunkNodes(ctx, req.(*ListChunkNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MasterService_ServiceDesc is the grpc.ServiceDesc for MasterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -804,6 +840,10 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveMaster",
 			Handler:    _MasterService_RemoveMaster_Handler,
+		},
+		{
+			MethodName: "ListChunkNodes",
+			Handler:    _MasterService_ListChunkNodes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

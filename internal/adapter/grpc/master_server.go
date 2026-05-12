@@ -395,6 +395,26 @@ func (m *MasterServer) RemoveMaster(ctx context.Context, req *godfsv1.RemoveMast
 	return &godfsv1.RemoveMasterResponse{}, nil
 }
 
+func (m *MasterServer) ListChunkNodes(ctx context.Context, _ *godfsv1.ListChunkNodesRequest) (*godfsv1.ListChunkNodesResponse, error) {
+	entries, err := m.Store.ListChunkNodes(ctx)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*godfsv1.ChunkNodeEntry, 0, len(entries))
+	for i := range entries {
+		e := entries[i]
+		out = append(out, &godfsv1.ChunkNodeEntry{
+			NodeId:        string(e.ID),
+			GrpcAddress:   e.GRPCAddress,
+			CapacityBytes: e.CapacityBytes,
+			UsedBytes:     e.UsedBytes,
+			LastSeenUnix:  e.LastSeenUnix,
+			Alive:         e.Alive,
+		})
+	}
+	return &godfsv1.ListChunkNodesResponse{Nodes: out}, nil
+}
+
 func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
 	if m == nil {
 		return nil
@@ -466,7 +486,7 @@ func backupSnapshotFromProto(m *godfsv1.BackupManifest) (*domain.BackupSnapshot,
 					continue
 				}
 				reps = append(reps, domain.ChunkReplica{
-					NodeID:   domain.NodeID(r.GetNodeId()),
+					NodeID:  domain.NodeID(r.GetNodeId()),
 					Address: r.GetGrpcAddress(),
 				})
 			}

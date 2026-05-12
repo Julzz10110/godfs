@@ -389,6 +389,9 @@ func main() {
 	}
 	var unary []grpc.UnaryServerInterceptor
 	unary = append(unary, observability.GRPCUnaryPrometheusInterceptor())
+	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
+		unary = append(unary, rl)
+	}
 	if auth.Enabled {
 		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(auth, rbac, audit))
 	}

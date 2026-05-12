@@ -27,6 +27,8 @@ service MasterService {
   rpc ListMasters(ListMastersRequest) returns (ListMastersResponse);
   rpc AddMaster(AddMasterRequest) returns (AddMasterResponse);
   rpc RemoveMaster(RemoveMasterRequest) returns (RemoveMasterResponse);
+  // Registered chunk nodes + liveness (admin-only; read-only on current metadata state).
+  rpc ListChunkNodes(ListChunkNodesRequest) returns (ListChunkNodesResponse);
 }
 
 message RegisterNodeRequest {
@@ -253,6 +255,21 @@ message RemoveMasterRequest {
 }
 
 message RemoveMasterResponse {}
+
+message ListChunkNodesRequest {}
+
+message ListChunkNodesResponse {
+  repeated ChunkNodeEntry nodes = 1;
+}
+
+message ChunkNodeEntry {
+  string node_id = 1;
+  string grpc_address = 2;
+  int64 capacity_bytes = 3;
+  int64 used_bytes = 4;
+  int64 last_seen_unix = 5;
+  bool alive = 6;
+}
 
 service ChunkService {
   rpc WriteChunk(stream WriteChunkRequest) returns (WriteChunkResponse);
