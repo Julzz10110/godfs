@@ -99,6 +99,24 @@ func SetDataPlaneStats(st DataPlaneStats) {
 	}
 }
 
+// SetDataPlaneCoreStats updates under-replicated / pending-delete / unrepairable gauges only.
+// Use SetDataPlaneStaleReplicas for godfs_data_stale_replicas so frequent rebalance/GC ticks
+// do not reset the stale scan to zero.
+func SetDataPlaneCoreStats(underReplicated, pendingDeletes, unrepairable int) {
+	if dpUnderReplicatedChunks != nil {
+		dpUnderReplicatedChunks.Set(float64(underReplicated))
+		dpPendingDeletes.Set(float64(pendingDeletes))
+		dpUnrepairableChunks.Set(float64(unrepairable))
+	}
+}
+
+// SetDataPlaneStaleReplicas sets godfs_data_stale_replicas (checksum mismatch vs metadata).
+func SetDataPlaneStaleReplicas(n int) {
+	if dpStaleReplicas != nil {
+		dpStaleReplicas.Set(float64(n))
+	}
+}
+
 func IncInFlight(kind InFlightKind) {
 	if maintInFlight != nil {
 		maintInFlight.WithLabelValues(string(kind)).Inc()
@@ -178,4 +196,3 @@ func mustRegisterCounterVec(c *prometheus.CounterVec) *prometheus.CounterVec {
 	}
 	return c
 }
-

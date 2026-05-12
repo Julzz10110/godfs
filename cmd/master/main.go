@@ -171,6 +171,38 @@ func main() {
 		}
 	}
 
+	rebalanceBackoffJitterFrac := 0.0
+	if v := os.Getenv("GODFS_REBALANCE_BACKOFF_JITTER"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			rebalanceBackoffJitterFrac = f
+			if rebalanceBackoffJitterFrac > 1 {
+				rebalanceBackoffJitterFrac = 1
+			}
+		}
+	}
+	gcBackoffJitterFrac := 0.0
+	if v := os.Getenv("GODFS_GC_BACKOFF_JITTER"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			gcBackoffJitterFrac = f
+			if gcBackoffJitterFrac > 1 {
+				gcBackoffJitterFrac = 1
+			}
+		}
+	}
+
+	staleReplicaGaugeEvery := time.Duration(0)
+	if v := os.Getenv("GODFS_STALE_REPLICA_GAUGE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			staleReplicaGaugeEvery = d
+		}
+	}
+	staleReplicaGaugeTimeout := 2 * time.Minute
+	if v := os.Getenv("GODFS_STALE_REPLICA_GAUGE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			staleReplicaGaugeTimeout = d
+		}
+	}
+
 	chunkSize := int64(config.DefaultChunkSize)
 	if v := os.Getenv("GODFS_CHUNK_SIZE_BYTES"); v != "" {
 		var n int64
@@ -225,24 +257,28 @@ func main() {
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
 
 		startRaftBackgroundMaintenance(rstore, maintenanceLoopConfig{
-			rebalanceEvery:          rebalanceEvery,
-			rebalanceMaxPerTick:     rebalanceMaxPerTick,
-			rebalanceMaxAttempts:    rebalanceMaxAttempts,
-			rebalanceBackoffBase:    rebalanceBackoffBase,
-			rebalanceBackoffMax:     rebalanceBackoffMax,
-			gcEvery:                 gcEvery,
-			gcMaxPerTick:            gcMaxPerTick,
-			gcMaxAttempts:           gcMaxAttempts,
-			gcBaseBackoff:           gcBaseBackoff,
-			gcMaxBackoff:            gcMaxBackoff,
-			orphanEvery:             orphanEvery,
-			orphanMinAge:            orphanMinAge,
-			orphanMaxPerNode:        orphanMaxPerNode,
-			rebalanceInFlight:       rebalanceInFlight,
-			gcInFlight:              gcInFlight,
-			checksumInFlight:        checksumInFlight,
-			perNodePullInFlight:     perNodePullInFlight,
-			perNodeChecksumInFlight: perNodeChecksumInFlight,
+			rebalanceEvery:             rebalanceEvery,
+			rebalanceMaxPerTick:        rebalanceMaxPerTick,
+			rebalanceMaxAttempts:       rebalanceMaxAttempts,
+			rebalanceBackoffBase:       rebalanceBackoffBase,
+			rebalanceBackoffMax:        rebalanceBackoffMax,
+			rebalanceBackoffJitterFrac: rebalanceBackoffJitterFrac,
+			gcEvery:                    gcEvery,
+			gcMaxPerTick:               gcMaxPerTick,
+			gcMaxAttempts:              gcMaxAttempts,
+			gcBaseBackoff:              gcBaseBackoff,
+			gcMaxBackoff:               gcMaxBackoff,
+			gcBackoffJitterFrac:        gcBackoffJitterFrac,
+			orphanEvery:                orphanEvery,
+			orphanMinAge:               orphanMinAge,
+			orphanMaxPerNode:           orphanMaxPerNode,
+			rebalanceInFlight:          rebalanceInFlight,
+			gcInFlight:                 gcInFlight,
+			checksumInFlight:           checksumInFlight,
+			perNodePullInFlight:        perNodePullInFlight,
+			perNodeChecksumInFlight:    perNodeChecksumInFlight,
+			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
+			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
 		})
 
 		// publish Raft SRE metrics periodically
@@ -280,24 +316,28 @@ func main() {
 		store = metaStore
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
 		startSingleMasterBackgroundMaintenance(metaStore, maintenanceLoopConfig{
-			rebalanceEvery:          rebalanceEvery,
-			rebalanceMaxPerTick:     rebalanceMaxPerTick,
-			rebalanceMaxAttempts:    rebalanceMaxAttempts,
-			rebalanceBackoffBase:    rebalanceBackoffBase,
-			rebalanceBackoffMax:     rebalanceBackoffMax,
-			gcEvery:                 gcEvery,
-			gcMaxPerTick:            gcMaxPerTick,
-			gcMaxAttempts:           gcMaxAttempts,
-			gcBaseBackoff:           gcBaseBackoff,
-			gcMaxBackoff:            gcMaxBackoff,
-			orphanEvery:             orphanEvery,
-			orphanMinAge:            orphanMinAge,
-			orphanMaxPerNode:        orphanMaxPerNode,
-			rebalanceInFlight:       rebalanceInFlight,
-			gcInFlight:              gcInFlight,
-			checksumInFlight:        checksumInFlight,
-			perNodePullInFlight:     perNodePullInFlight,
-			perNodeChecksumInFlight: perNodeChecksumInFlight,
+			rebalanceEvery:             rebalanceEvery,
+			rebalanceMaxPerTick:        rebalanceMaxPerTick,
+			rebalanceMaxAttempts:       rebalanceMaxAttempts,
+			rebalanceBackoffBase:       rebalanceBackoffBase,
+			rebalanceBackoffMax:        rebalanceBackoffMax,
+			rebalanceBackoffJitterFrac: rebalanceBackoffJitterFrac,
+			gcEvery:                    gcEvery,
+			gcMaxPerTick:               gcMaxPerTick,
+			gcMaxAttempts:              gcMaxAttempts,
+			gcBaseBackoff:              gcBaseBackoff,
+			gcMaxBackoff:               gcMaxBackoff,
+			gcBackoffJitterFrac:        gcBackoffJitterFrac,
+			orphanEvery:                orphanEvery,
+			orphanMinAge:               orphanMinAge,
+			orphanMaxPerNode:           orphanMaxPerNode,
+			rebalanceInFlight:          rebalanceInFlight,
+			gcInFlight:                 gcInFlight,
+			checksumInFlight:           checksumInFlight,
+			perNodePullInFlight:        perNodePullInFlight,
+			perNodeChecksumInFlight:    perNodeChecksumInFlight,
+			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
+			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
 		})
 	}
 

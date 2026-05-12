@@ -9,36 +9,42 @@ import (
 
 	godfsv1 "godfs/api/proto/godfs/v1"
 	"godfs/internal/adapter/repository/metadata"
+	"godfs/internal/domain"
 	"godfs/internal/maintenance/checksumcache"
 	"godfs/internal/maintenance/limits"
 	"godfs/internal/observability"
-	"godfs/internal/domain"
 	"godfs/internal/raftmeta"
 	"godfs/internal/security"
 )
 
 // maintenanceLoopConfig holds intervals and limits for background rebalance, delete-GC, and orphan chunk cleanup.
 type maintenanceLoopConfig struct {
-	rebalanceEvery        time.Duration
-	rebalanceMaxPerTick   int
-	rebalanceMaxAttempts  int
-	rebalanceBackoffBase  time.Duration
-	rebalanceBackoffMax   time.Duration
-	gcEvery               time.Duration
-	gcMaxPerTick          int
-	gcMaxAttempts         int
-	gcBaseBackoff         time.Duration
-	gcMaxBackoff          time.Duration
-	orphanEvery           time.Duration
-	orphanMinAge          time.Duration
-	orphanMaxPerNode      int
+	rebalanceEvery             time.Duration
+	rebalanceMaxPerTick        int
+	rebalanceMaxAttempts       int
+	rebalanceBackoffBase       time.Duration
+	rebalanceBackoffMax        time.Duration
+	rebalanceBackoffJitterFrac float64
+	gcEvery                    time.Duration
+	gcMaxPerTick               int
+	gcMaxAttempts              int
+	gcBaseBackoff              time.Duration
+	gcMaxBackoff               time.Duration
+	gcBackoffJitterFrac        float64
+	orphanEvery                time.Duration
+	orphanMinAge               time.Duration
+	orphanMaxPerNode           int
 
 	// In-flight limits (0 = disabled).
-	rebalanceInFlight          int
-	gcInFlight                int
-	checksumInFlight          int
-	perNodePullInFlight       int
-	perNodeChecksumInFlight   int
+	rebalanceInFlight       int
+	gcInFlight              int
+	checksumInFlight        int
+	perNodePullInFlight     int
+	perNodeChecksumInFlight int
+
+	// Stale replica gauge: periodic full checksum scan (0 = disabled).
+	staleReplicaGaugeEvery   time.Duration
+	staleReplicaGaugeTimeout time.Duration
 }
 
 // startRaftBackgroundMaintenance runs periodic rebalance, best-effort chunk delete after metadata removal, and orphan file cleanup on the Raft leader.
@@ -111,6 +117,7 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 						if backoff <= 0 {
 							backoff = 30 * time.Second
 						}
+						backoff = backoffWithJitter(backoff, cfg.rebalanceBackoffJitterFrac)
 						next := now.Add(backoff).Unix()
 						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 						_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, "unrepairable:"+act.UnrepairableReason)
@@ -157,17 +164,14 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					if backoff > cfg.rebalanceBackoffMax {
 						backoff = cfg.rebalanceBackoffMax
 					}
+					backoff = backoffWithJitter(backoff, cfg.rebalanceBackoffJitterFrac)
 					next := now.Add(backoff).Unix()
 					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 					_ = rstore.MarkRebalanceAttempt(uctx, act.ChunkID, attempts+1, next, err.Error())
 					ucancel()
 				}
 				st := rstore.DataPlaneStats(now)
-				observability.SetDataPlaneStats(observability.DataPlaneStats{
-					UnderReplicatedChunks: st.UnderReplicatedChunks,
-					PendingDeletes:        st.PendingDeletes,
-					UnrepairableChunks:    st.UnrepairableChunks,
-				})
+				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -231,17 +235,14 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					if backoff > cfg.gcMaxBackoff {
 						backoff = cfg.gcMaxBackoff
 					}
+					backoff = backoffWithJitter(backoff, cfg.gcBackoffJitterFrac)
 					next := now.Add(backoff).Unix()
 					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 					_ = rstore.MarkPendingDeleteAttempt(uctx, cid, addr, attempts+1, next)
 					ucancel()
 				}
 				st := rstore.DataPlaneStats(now)
-				observability.SetDataPlaneStats(observability.DataPlaneStats{
-					UnderReplicatedChunks: st.UnderReplicatedChunks,
-					PendingDeletes:        st.PendingDeletes,
-					UnrepairableChunks:    st.UnrepairableChunks,
-				})
+				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -263,6 +264,10 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 				cancel()
 			}
 		}()
+	}
+
+	if cfg.staleReplicaGaugeEvery > 0 {
+		go staleReplicaGaugeRaftLoop(rstore, cfg)
 	}
 }
 
@@ -333,6 +338,7 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 						if backoff <= 0 {
 							backoff = 30 * time.Second
 						}
+						backoff = backoffWithJitter(backoff, cfg.rebalanceBackoffJitterFrac)
 						next := now.Add(backoff).Unix()
 						m.MarkRebalanceAttempt(act.ChunkID, attempts+1, next, "unrepairable:"+act.UnrepairableReason)
 						observability.RecordRebalanceAction(observability.ActionRepairStale, context.Canceled, "unrepairable")
@@ -373,15 +379,12 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					if backoff > cfg.rebalanceBackoffMax {
 						backoff = cfg.rebalanceBackoffMax
 					}
+					backoff = backoffWithJitter(backoff, cfg.rebalanceBackoffJitterFrac)
 					next := now.Add(backoff).Unix()
 					m.MarkRebalanceAttempt(act.ChunkID, attempts+1, next, err.Error())
 				}
 				st := m.DataPlaneStats(now)
-				observability.SetDataPlaneStats(observability.DataPlaneStats{
-					UnderReplicatedChunks: st.UnderReplicatedChunks,
-					PendingDeletes:        st.PendingDeletes,
-					UnrepairableChunks:    st.UnrepairableChunks,
-				})
+				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -438,15 +441,12 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					if backoff > cfg.gcMaxBackoff {
 						backoff = cfg.gcMaxBackoff
 					}
+					backoff = backoffWithJitter(backoff, cfg.gcBackoffJitterFrac)
 					next := now.Add(backoff).Unix()
 					m.MarkPendingDeleteAttempt(cid, addr, attempts+1, next)
 				}
 				st := m.DataPlaneStats(now)
-				observability.SetDataPlaneStats(observability.DataPlaneStats{
-					UnderReplicatedChunks: st.UnderReplicatedChunks,
-					PendingDeletes:        st.PendingDeletes,
-					UnrepairableChunks:    st.UnrepairableChunks,
-				})
+				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -465,5 +465,44 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 				cancel()
 			}
 		}()
+	}
+
+	if cfg.staleReplicaGaugeEvery > 0 {
+		go staleReplicaGaugeMemoryLoop(m, cfg)
+	}
+}
+
+func staleReplicaGaugeRaftLoop(rstore *raftmeta.Service, cfg maintenanceLoopConfig) {
+	t := time.NewTicker(cfg.staleReplicaGaugeEvery)
+	defer t.Stop()
+	for range t.C {
+		if !rstore.IsLeader() {
+			continue
+		}
+		now := time.Now().UTC()
+		timeout := cfg.staleReplicaGaugeTimeout
+		if timeout <= 0 {
+			timeout = 2 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		n := rstore.CountStaleReplicas(ctx, now)
+		cancel()
+		observability.SetDataPlaneStaleReplicas(n)
+	}
+}
+
+func staleReplicaGaugeMemoryLoop(m *metadata.Store, cfg maintenanceLoopConfig) {
+	t := time.NewTicker(cfg.staleReplicaGaugeEvery)
+	defer t.Stop()
+	for range t.C {
+		now := time.Now().UTC()
+		timeout := cfg.staleReplicaGaugeTimeout
+		if timeout <= 0 {
+			timeout = 2 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		n := m.CountStaleReplicas(ctx, now)
+		cancel()
+		observability.SetDataPlaneStaleReplicas(n)
 	}
 }
