@@ -203,6 +203,20 @@ func main() {
 		}
 	}
 
+	maintChecksumMaxQPS := 0.0
+	if v := os.Getenv("GODFS_MAINT_CHECKSUM_MAX_QPS"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			maintChecksumMaxQPS = f
+		}
+	}
+
+	gcPendingDeleteGrace := time.Duration(0)
+	if v := os.Getenv("GODFS_GC_PENDING_DELETE_GRACE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			gcPendingDeleteGrace = d
+		}
+	}
+
 	chunkSize := int64(config.DefaultChunkSize)
 	if v := os.Getenv("GODFS_CHUNK_SIZE_BYTES"); v != "" {
 		var n int64
@@ -253,6 +267,7 @@ func main() {
 			log.Fatalf("start raft: %v", err)
 		}
 		rstore := raftmeta.NewService(node.Raft, node.FSM, grpcByRaft)
+		rstore.SetPendingDeleteGrace(gcPendingDeleteGrace)
 		store = rstore
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
 
@@ -279,6 +294,7 @@ func main() {
 			perNodeChecksumInFlight:    perNodeChecksumInFlight,
 			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
 			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
+			maintChecksumMaxQPS:        maintChecksumMaxQPS,
 		})
 
 		// publish Raft SRE metrics periodically
@@ -313,6 +329,7 @@ func main() {
 	} else {
 		metaStore := metadata.NewStore(chunkSize, replication)
 		metaStore.SetNodeDeadAfter(nodeDeadAfter)
+		metaStore.SetGCPendingDeleteGrace(gcPendingDeleteGrace)
 		store = metaStore
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
 		startSingleMasterBackgroundMaintenance(metaStore, maintenanceLoopConfig{
@@ -338,6 +355,7 @@ func main() {
 			perNodeChecksumInFlight:    perNodeChecksumInFlight,
 			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
 			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
+			maintChecksumMaxQPS:        maintChecksumMaxQPS,
 		})
 	}
 

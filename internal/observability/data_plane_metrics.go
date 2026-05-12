@@ -35,6 +35,9 @@ var (
 	rebalanceErrorsTotal  *prometheus.CounterVec
 	deleteActionsTotal    prometheus.Counter
 	deleteErrorsTotal     *prometheus.CounterVec
+
+	maintChecksumRPCTotal        *prometheus.CounterVec
+	maintReplicaMetaCompareTotal *prometheus.CounterVec
 )
 
 // InitDataPlaneMetrics registers Production-2 data plane metrics.
@@ -80,6 +83,15 @@ func InitDataPlaneMetrics() {
 			Name: "godfs_maint_delete_errors_total",
 			Help: "Total number of best-effort DeleteChunk action errors.",
 		}, []string{"reason"}))
+
+		maintChecksumRPCTotal = mustRegisterCounterVec(prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "godfs_maint_checksum_rpc_total",
+			Help: "ChecksumChunk RPCs issued by master background maintenance (verifier wrapper).",
+		}, []string{"result"}))
+		maintReplicaMetaCompareTotal = mustRegisterCounterVec(prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "godfs_maint_replica_meta_compare_total",
+			Help: "Replica SHA-256 compared to committed metadata checksum during scans / stale counting.",
+		}, []string{"result"}))
 	})
 }
 
@@ -150,6 +162,26 @@ func RecordDeleteAction(err error, reason string) {
 			reason = "error"
 		}
 		deleteErrorsTotal.WithLabelValues(reason).Inc()
+	}
+}
+
+// RecordMaintChecksumRPC counts underlying ChecksumChunk calls from the maintenance verifier wrapper.
+func RecordMaintChecksumRPC(success bool) {
+	if maintChecksumRPCTotal == nil {
+		return
+	}
+	if success {
+		maintChecksumRPCTotal.WithLabelValues("ok").Inc()
+	} else {
+		maintChecksumRPCTotal.WithLabelValues("error").Inc()
+	}
+}
+
+// RecordMaintReplicaMetaCompare records replica-vs-metadata digest comparison outcomes
+// (match, mismatch, rpc_error, short_checksum).
+func RecordMaintReplicaMetaCompare(result string) {
+	if maintReplicaMetaCompareTotal != nil {
+		maintReplicaMetaCompareTotal.WithLabelValues(result).Inc()
 	}
 }
 

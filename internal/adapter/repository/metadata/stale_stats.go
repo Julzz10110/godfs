@@ -1,14 +1,15 @@
 package metadata
 
 import (
-	"bytes"
 	"context"
 	"time"
 
 	"google.golang.org/grpc"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/dataplane"
 	"godfs/internal/domain"
+	"godfs/internal/observability"
 	"godfs/internal/security"
 )
 
@@ -25,7 +26,7 @@ func (s *Store) CountStaleReplicas(ctx context.Context, at time.Time) int {
 
 	s.mu.RLock()
 	for cid, cr := range s.chunks {
-		if cr == nil || len(cr.checksum) != 32 {
+		if cr == nil || !dataplane.HasCommittedChunkChecksum(cr.checksum) {
 			continue
 		}
 		snaps = append(snaps, snap{
@@ -71,7 +72,7 @@ func countStaleReplicasOneChunkMeta(
 	isAlive func(domain.NodeID) bool,
 	repSum func(context.Context, string, domain.ChunkID) ([]byte, error),
 ) int {
-	if len(metaSum) != 32 {
+	if !dataplane.HasCommittedChunkChecksum(metaSum) {
 		return 0
 	}
 	n := 0
@@ -80,11 +81,19 @@ func countStaleReplicasOneChunkMeta(
 			continue
 		}
 		sum, err := repSum(ctx, r.Address, chunkID)
-		if err != nil || len(sum) != 32 {
+		if err != nil {
+			observability.RecordMaintReplicaMetaCompare("rpc_error")
 			continue
 		}
-		if !bytes.Equal(sum, metaSum) {
+		if !dataplane.HasCommittedChunkChecksum(sum) {
+			observability.RecordMaintReplicaMetaCompare("short_checksum")
+			continue
+		}
+		if dataplane.IsReplicaStaleComparedToMeta(metaSum, sum) {
+			observability.RecordMaintReplicaMetaCompare("mismatch")
 			n++
+		} else {
+			observability.RecordMaintReplicaMetaCompare("match")
 		}
 	}
 	return n

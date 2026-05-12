@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,18 +23,36 @@ type Service struct {
 	leaderMapMu          sync.RWMutex
 
 	checksumVerifier ChecksumVerifier
+
+	// pendingDeleteGraceNs is a best-effort delay before the first DeleteChunk attempt
+	// after a pending delete is enqueued (same semantics as metadata.Store.gcPendingDeleteGrace).
+	pendingDeleteGraceNs atomic.Int64
 }
 
 func NewService(r *raft.Raft, fsm *FSM, leaderGrpcByRaftAddr map[string]string) *Service {
 	return &Service{
-		raft:                r,
-		fsm:                 fsm,
+		raft:                 r,
+		fsm:                  fsm,
 		leaderGrpcByRaftAddr: leaderGrpcByRaftAddr,
 	}
 }
 
 func (s *Service) SetChecksumVerifier(v ChecksumVerifier) {
 	s.checksumVerifier = v
+}
+
+// SetPendingDeleteGrace configures a minimum age after enqueue before chunk delete-GC runs.
+// Zero disables the grace window. Applies on the leader only (PlanDeleteGC); all masters
+// should use the same value in homogeneous deployments.
+func (s *Service) SetPendingDeleteGrace(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	s.pendingDeleteGraceNs.Store(int64(d))
+}
+
+func (s *Service) pendingDeleteGrace() time.Duration {
+	return time.Duration(s.pendingDeleteGraceNs.Load())
 }
 
 func (s *Service) IsLeader() bool {
@@ -547,4 +566,3 @@ func ParsePeers(s string) (map[string]raft.ServerAddress, map[string]string, err
 	}
 	return peers, grpcByRaft, nil
 }
-

@@ -39,6 +39,9 @@ type Store struct {
 	pendingDeletes map[domain.ChunkID]map[string]*pendingChunkDelete
 	rebalanceTasks map[domain.ChunkID]*rebalanceWork
 
+	// gcPendingDeleteGrace delays the first DeleteChunk attempt after enqueue (soft-delete window).
+	gcPendingDeleteGrace time.Duration
+
 	dirs  map[string]struct{}
 	files map[string]*fileRec
 
@@ -117,6 +120,17 @@ func (s *Store) SetNodeDeadAfter(d time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nodeDeadAfter = d
+}
+
+// SetGCPendingDeleteGrace configures a minimum age after enqueue before chunk delete-GC runs.
+// Zero disables the grace window.
+func (s *Store) SetGCPendingDeleteGrace(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	s.gcPendingDeleteGrace = d
 }
 
 // Heartbeat records liveness and disk telemetry for a chunk node.

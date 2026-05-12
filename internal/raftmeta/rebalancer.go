@@ -1,7 +1,6 @@
 package raftmeta
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/dataplane"
 	"godfs/internal/domain"
 	"godfs/internal/security"
 )
@@ -18,10 +18,10 @@ import (
 type ChecksumVerifier func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error)
 
 type RebalanceAction struct {
-	ChunkID       domain.ChunkID
-	SourceAddr    string
-	TargetNodeID  domain.NodeID
-	TargetAddr    string
+	ChunkID      domain.ChunkID
+	SourceAddr   string
+	TargetNodeID domain.NodeID
+	TargetAddr   string
 	// RepairExisting indicates the target is an existing replica to be overwritten (stale repair).
 	RepairExisting bool
 	// Unrepairable indicates the chunk appears unrecoverable right now (no good replica found).
@@ -97,7 +97,7 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 
 	// 1) Stale repair: if master checksum exists and we can find a good source.
 	for _, p := range plans {
-		if len(p.checksum) != 32 || len(p.replicas) == 0 {
+		if !dataplane.HasCommittedChunkChecksum(p.checksum) || len(p.replicas) == 0 {
 			continue
 		}
 		// Find a good source matching metadata checksum.
@@ -109,7 +109,7 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 			}
 			aliveReplicas++
 			sum, err := repChecksum(r.Address, p.id)
-			if err == nil && len(sum) == 32 && bytes.Equal(sum, p.checksum) {
+			if err == nil && dataplane.HasCommittedChunkChecksum(sum) && !dataplane.IsReplicaStaleComparedToMeta(p.checksum, sum) {
 				goodSrc = r.Address
 				break
 			}
@@ -117,9 +117,9 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 		if goodSrc == "" {
 			if aliveReplicas > 0 {
 				return &RebalanceAction{
-					ChunkID:             p.id,
-					Unrepairable:        true,
-					UnrepairableReason:  "no_good_replica",
+					ChunkID:            p.id,
+					Unrepairable:       true,
+					UnrepairableReason: "no_good_replica",
 				}, nil
 			}
 			continue
@@ -130,10 +130,10 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 				continue
 			}
 			sum, err := repChecksum(r.Address, p.id)
-			if err != nil || len(sum) != 32 {
+			if err != nil || !dataplane.HasCommittedChunkChecksum(sum) {
 				continue
 			}
-			if !bytes.Equal(sum, p.checksum) {
+			if dataplane.IsReplicaStaleComparedToMeta(p.checksum, sum) {
 				return &RebalanceAction{
 					ChunkID:        p.id,
 					SourceAddr:     goodSrc,
@@ -230,6 +230,7 @@ func (s *Service) ExecuteRebalance(ctx context.Context, act *RebalanceAction) er
 
 // PlanDeleteGC returns at most one due pending delete action.
 func (s *Service) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr string, attempts int, ok bool) {
+	grace := s.pendingDeleteGrace()
 	s.fsm.mu.RLock()
 	defer s.fsm.mu.RUnlock()
 	for cid, addrs := range s.fsm.st.PendingDeletes {
@@ -240,10 +241,14 @@ func (s *Service) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr strin
 			if pd.NextAttemptUnix > 0 && time.Unix(pd.NextAttemptUnix, 0).After(at) {
 				continue
 			}
+			if grace > 0 && pd.CreatedUnix > 0 {
+				first := time.Unix(pd.CreatedUnix, 0).UTC().Add(grace)
+				if at.Before(first) {
+					continue
+				}
+			}
 			return cid, a, pd.Attempts, true
 		}
 	}
 	return "", "", 0, false
 }
-
-

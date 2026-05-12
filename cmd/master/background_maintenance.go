@@ -45,6 +45,9 @@ type maintenanceLoopConfig struct {
 	// Stale replica gauge: periodic full checksum scan (0 = disabled).
 	staleReplicaGaugeEvery   time.Duration
 	staleReplicaGaugeTimeout time.Duration
+
+	// maintChecksumMaxQPS caps ChecksumChunk RPC rate from maintenance (0 = unlimited).
+	maintChecksumMaxQPS float64
 }
 
 // startRaftBackgroundMaintenance runs periodic rebalance, best-effort chunk delete after metadata removal, and orphan file cleanup on the Raft leader.
@@ -61,7 +64,7 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 		},
 	})
 	ckCache := checksumcache.New(2 * time.Second)
-	rstore.SetChecksumVerifier(func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
+	inner := func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
 		now := time.Now().UTC()
 		key := fmt.Sprintf("%s|%s", addr, chunkID)
 		if sum, ok := ckCache.Get(key, now); ok {
@@ -95,7 +98,8 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 			ckCache.Put(key, resp.ChecksumSha256, now)
 		}
 		return resp.ChecksumSha256, nil
-	})
+	}
+	rstore.SetChecksumVerifier(wrapMaintChecksumVerifier(inner, cfg.maintChecksumMaxQPS))
 
 	if cfg.rebalanceEvery > 0 {
 		go func() {
@@ -285,7 +289,7 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 		},
 	})
 	ckCache := checksumcache.New(2 * time.Second)
-	m.SetChecksumVerifier(func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
+	inner := func(ctx context.Context, addr string, chunkID domain.ChunkID) ([]byte, error) {
 		now := time.Now().UTC()
 		key := fmt.Sprintf("%s|%s", addr, chunkID)
 		if sum, ok := ckCache.Get(key, now); ok {
@@ -319,7 +323,8 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 			ckCache.Put(key, resp.ChecksumSha256, now)
 		}
 		return resp.ChecksumSha256, nil
-	})
+	}
+	m.SetChecksumVerifier(wrapMaintChecksumVerifier(inner, cfg.maintChecksumMaxQPS))
 
 	if cfg.rebalanceEvery > 0 {
 		go func() {

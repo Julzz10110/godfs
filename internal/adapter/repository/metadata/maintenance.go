@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 
 	godfsv1 "godfs/api/proto/godfs/v1"
+	"godfs/internal/dataplane"
 	"godfs/internal/domain"
 	"godfs/internal/security"
 )
@@ -114,7 +114,7 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 	}
 
 	for _, p := range plans {
-		if len(p.checksum) != 32 || len(p.replicas) == 0 {
+		if !dataplane.HasCommittedChunkChecksum(p.checksum) || len(p.replicas) == 0 {
 			continue
 		}
 		var goodSrc string
@@ -125,7 +125,7 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 			}
 			aliveReplicas++
 			sum, err := repChecksum(r.Address, p.id)
-			if err == nil && len(sum) == 32 && bytes.Equal(sum, p.checksum) {
+			if err == nil && dataplane.HasCommittedChunkChecksum(sum) && !dataplane.IsReplicaStaleComparedToMeta(p.checksum, sum) {
 				goodSrc = r.Address
 				break
 			}
@@ -133,13 +133,13 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 		if goodSrc == "" {
 			if aliveReplicas > 0 {
 				return &RebalanceAction{
-					ChunkID:             p.id,
-					Unrepairable:        true,
-					UnrepairableReason:  "no_good_replica",
-					RepairExisting:      false,
-					SourceAddr:          "",
-					TargetAddr:          "",
-					TargetNodeID:        "",
+					ChunkID:            p.id,
+					Unrepairable:       true,
+					UnrepairableReason: "no_good_replica",
+					RepairExisting:     false,
+					SourceAddr:         "",
+					TargetAddr:         "",
+					TargetNodeID:       "",
 				}, nil
 			}
 			continue
@@ -149,10 +149,10 @@ func (s *Store) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 				continue
 			}
 			sum, err := repChecksum(r.Address, p.id)
-			if err != nil || len(sum) != 32 {
+			if err != nil || !dataplane.HasCommittedChunkChecksum(sum) {
 				continue
 			}
-			if !bytes.Equal(sum, p.checksum) {
+			if dataplane.IsReplicaStaleComparedToMeta(p.checksum, sum) {
 				return &RebalanceAction{
 					ChunkID:        p.id,
 					SourceAddr:     goodSrc,
@@ -268,6 +268,7 @@ func (s *Store) AddReplica(chunkID domain.ChunkID, nodeID domain.NodeID, addr st
 func (s *Store) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr string, attempts int, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	grace := s.gcPendingDeleteGrace
 	for cid, addrs := range s.pendingDeletes {
 		for a, pd := range addrs {
 			if pd == nil {
@@ -275,6 +276,12 @@ func (s *Store) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr string,
 			}
 			if pd.NextAttemptUnix > 0 && time.Unix(pd.NextAttemptUnix, 0).After(at) {
 				continue
+			}
+			if grace > 0 && pd.CreatedUnix > 0 {
+				first := time.Unix(pd.CreatedUnix, 0).UTC().Add(grace)
+				if at.Before(first) {
+					continue
+				}
 			}
 			return cid, a, pd.Attempts, true
 		}
