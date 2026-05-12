@@ -42,12 +42,11 @@ spec:
           annotations:
             summary: "goDFS: unrepairable chunks detected"
             description: "Rebalancer could not find any good replica matching master checksum. Manual intervention likely required."
-        - alert: GodfsChunkNodesDead
-          expr: max(godfs_chunk_nodes_dead) > 0
-          for: 1m
+        - alert: GodfsPendingDeletesBacklog
+          expr: max(godfs_data_pending_deletes) > 1000
+          for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "goDFS: dead chunk nodes detected"
-            description: "One or more chunk nodes are considered dead by heartbeat. Check chunkserver pods and network."
-
+            summary: "goDFS: large pending delete backlog"
+            description: "Many pending DeleteChunk entries; chunk nodes may be down or DeleteChunk failing. Check godfs_maint_delete_errors_total and chunk health."

@@ -176,6 +176,8 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 				}
 				st := rstore.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				f, d, c, b := rstore.NamespaceSnapshot()
+				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -247,6 +249,8 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 				}
 				st := rstore.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				f, d, c, b := rstore.NamespaceSnapshot()
+				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -390,6 +394,8 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 				}
 				st := m.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				f, d, c, b := m.NamespaceSnapshot()
+				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,
@@ -452,6 +458,8 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 				}
 				st := m.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				f, d, c, b := m.NamespaceSnapshot()
+				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
 					Alive: st.ChunkNodesAlive,
 					Dead:  st.ChunkNodesDead,

@@ -40,6 +40,7 @@ func main() {
 	observability.EnableGRPCPrometheusHistograms()
 	observability.StartMetricsHTTPServer(os.Getenv("GODFS_METRICS_LISTEN"))
 	observability.InitDataPlaneMetrics()
+	observability.InitNamespaceMetrics()
 	observability.InitRaftSREMetrics()
 
 	grpcListen := ":9090"
