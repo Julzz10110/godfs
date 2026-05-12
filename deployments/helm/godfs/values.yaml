@@ -12,6 +12,7 @@ replicas:
 raft:
   enabled: true
   replicas: 5
+  # Set to false after the first successful cluster bootstrap (persisted Raft on PVCs).
   bootstrap: true
   raftDir: /var/lib/godfs/raft
   storage:

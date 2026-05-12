@@ -13,6 +13,8 @@ spec:
   podManagementPolicy: Parallel
   updateStrategy:
     type: RollingUpdate
+    rollingUpdate:
+      partition: 0
   selector:
     matchLabels:
       {{- include "godfs.labels" . | nindent 6 }}
@@ -23,7 +25,7 @@ spec:
         {{- include "godfs.labels" . | nindent 8 }}
         app.kubernetes.io/component: master
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 45
       {{- if .Values.tls.enabled }}
       volumes:
         - name: tls
@@ -109,11 +111,22 @@ spec:
               mountPath: {{ .Values.tls.mountPath }}
               readOnly: true
             {{- end }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 12"]
           readinessProbe:
             tcpSocket:
               port: grpc
             initialDelaySeconds: 2
             periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
   volumeClaimTemplates:
     - metadata:
         name: raft

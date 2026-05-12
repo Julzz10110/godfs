@@ -1,6 +1,14 @@
 # Kubernetes
 
-Apply manifests in order (single-node example):
+**Raft cluster + chunk + gateway:** see [OPERATIONS.md](OPERATIONS.md) for bootstrap, rolling updates, membership (`AddMaster` / `RemoveMaster`), and PDB/PVC notes.
+
+Apply everything with Kustomize:
+
+```bash
+kubectl apply -k deployments/k8s
+```
+
+Or apply manifests in order (single-node example):
 
 ```bash
 kubectl apply -f namespace.yaml

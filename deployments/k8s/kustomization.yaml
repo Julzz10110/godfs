@@ -1,0 +1,20 @@
+# Production-3 baseline: Raft masters (StatefulSet + PVC) + chunk + REST gateway.
+# Requires namespace-scoped Secrets `godfs-tls` and `godfs-auth` (see external-secrets/ or create manually).
+#
+#   kubectl apply -k deployments/k8s
+#
+# Optional: External Secrets Operator examples (apply first if you use ESO):
+#   kubectl apply -f deployments/k8s/external-secrets/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+commonLabels:
+  app.kubernetes.io/part-of: godfs
+
+resources:
+  - namespace.yaml
+  - master-raft-services.yaml
+  - master-raft-pdb.yaml
+  - master-raft-statefulset.yaml
+  - chunkserver.yaml
+  - restgateway.yaml
