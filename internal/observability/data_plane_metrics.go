@@ -29,6 +29,9 @@ var (
 	dpPendingDeletes        prometheus.Gauge
 	dpUnrepairableChunks    prometheus.Gauge
 
+	maintRebalanceQueueDepth prometheus.Gauge
+	maintGCQueuedChunks      prometheus.Gauge
+
 	maintInFlight *prometheus.GaugeVec
 
 	rebalanceActionsTotal *prometheus.CounterVec
@@ -40,7 +43,7 @@ var (
 	maintReplicaMetaCompareTotal *prometheus.CounterVec
 )
 
-// InitDataPlaneMetrics registers Production-2 data plane metrics.
+// InitDataPlaneMetrics registers data plane metrics.
 // Safe to call multiple times.
 func InitDataPlaneMetrics() {
 	dpOnce.Do(func() {
@@ -59,6 +62,15 @@ func InitDataPlaneMetrics() {
 		dpUnrepairableChunks = mustRegisterGauge(prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "godfs_data_unrepairable_chunks",
 			Help: "Number of chunks marked unrepairable by the rebalancer (no good replica found).",
+		}))
+
+		maintRebalanceQueueDepth = mustRegisterGauge(prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "godfs_maint_rebalance_queue_depth",
+			Help: "Number of chunk IDs with an active rebalance state machine (best-effort).",
+		}))
+		maintGCQueuedChunks = mustRegisterGauge(prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "godfs_maint_gc_delete_chunks_queued",
+			Help: "Number of chunk IDs that have at least one pending DeleteChunk action queued.",
 		}))
 
 		maintInFlight = mustRegisterGaugeVec(prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -126,6 +138,14 @@ func SetDataPlaneCoreStats(underReplicated, pendingDeletes, unrepairable int) {
 func SetDataPlaneStaleReplicas(n int) {
 	if dpStaleReplicas != nil {
 		dpStaleReplicas.Set(float64(n))
+	}
+}
+
+// SetMaintQueueDepth publishes rebalance task map size and distinct chunk count in the delete-GC queue.
+func SetMaintQueueDepth(rebalanceQueueDepth, gcQueuedChunks int) {
+	if maintRebalanceQueueDepth != nil {
+		maintRebalanceQueueDepth.Set(float64(rebalanceQueueDepth))
+		maintGCQueuedChunks.Set(float64(gcQueuedChunks))
 	}
 }
 

@@ -160,6 +160,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/fs/content", s.handlePutContent)
 
 	mux.HandleFunc("POST /v1/fs/multipart", s.handleMultipartInit)
+	mux.HandleFunc("GET /v1/fs/multipart/{uploadId}/parts", s.handleMultipartListParts)
 	mux.HandleFunc("PUT /v1/fs/multipart/{uploadId}", s.handleMultipartUploadPart)
 	mux.HandleFunc("POST /v1/fs/multipart/{uploadId}/complete", s.handleMultipartComplete)
 	mux.HandleFunc("DELETE /v1/fs/multipart/{uploadId}", s.handleMultipartAbort)

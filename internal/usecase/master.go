@@ -59,4 +59,7 @@ type MasterStore interface {
 
 	// ListChunkNodes returns registered chunk servers and best-effort liveness (operator diagnostics).
 	ListChunkNodes(ctx context.Context) ([]domain.ChunkNodeDiag, error)
+
+	// RunRebalanceSteps runs up to maxSteps rebalance iterations (admin-only RPC).
+	RunRebalanceSteps(ctx context.Context, maxSteps int) (executed int, err error)
 }

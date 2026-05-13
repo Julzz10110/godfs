@@ -14,6 +14,9 @@ type DataPlaneStats struct {
 	PendingDeletes        int
 	UnrepairableChunks    int
 
+	RebalanceQueueDepth int
+	GCQueuedChunks      int
+
 	ChunkNodesAlive int
 	ChunkNodesDead  int
 }
@@ -54,6 +57,8 @@ func (s *Service) DataPlaneStats(at time.Time) DataPlaneStats {
 	for _, addrs := range state.PendingDeletes {
 		st.PendingDeletes += len(addrs)
 	}
+	st.RebalanceQueueDepth = len(state.RebalanceTasks)
+	st.GCQueuedChunks = len(state.PendingDeletes)
 	if state.NodeDeadAfter > 0 {
 		for id := range state.NodeStatus {
 			if state.isAliveAt(id, at) {

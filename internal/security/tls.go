@@ -17,6 +17,8 @@ type TLSConfig struct {
 	CertFile       string
 	KeyFile        string
 	CAFile         string
+	// ExtraCAFile is optional; PEM certs are appended to the trust pool (dual CA / bridge rotation).
+	ExtraCAFile    string
 	ClientCertFile string
 	ClientKeyFile  string
 }
@@ -31,6 +33,7 @@ func LoadTLSConfigFromEnv() TLSConfig {
 		CertFile:       firstNonEmpty(os.Getenv("GODFS_TLS_CERT_FILE"), os.Getenv("GODFS_TLS_SERVER_CERT")),
 		KeyFile:        firstNonEmpty(os.Getenv("GODFS_TLS_KEY_FILE"), os.Getenv("GODFS_TLS_SERVER_KEY")),
 		CAFile:         firstNonEmpty(os.Getenv("GODFS_TLS_CA_FILE"), os.Getenv("GODFS_TLS_CA")),
+		ExtraCAFile:    strings.TrimSpace(os.Getenv("GODFS_TLS_EXTRA_CA_FILE")),
 		ClientCertFile: firstNonEmpty(os.Getenv("GODFS_TLS_CLIENT_CERT_FILE"), os.Getenv("GODFS_TLS_CLIENT_CERT")),
 		ClientKeyFile:  firstNonEmpty(os.Getenv("GODFS_TLS_CLIENT_KEY_FILE"), os.Getenv("GODFS_TLS_CLIENT_KEY")),
 	}
@@ -74,6 +77,11 @@ func buildServerTLSConfig(cfg TLSConfig) (*tls.Config, error) {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(caPEM) {
 			return nil, errors.New("invalid CA PEM")
+		}
+		if p, err := appendCertsFromFile(pool, cfg.ExtraCAFile); err != nil {
+			return nil, err
+		} else {
+			pool = p
 		}
 		tlsConf.ClientCAs = pool
 		tlsConf.ClientAuth = tls.RequireAndVerifyClientCert
@@ -125,6 +133,17 @@ func ClientTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials
 			if !pool.AppendCertsFromPEM(caPEM) {
 				return nil, errors.New("invalid CA PEM")
 			}
+			if p, err := appendCertsFromFile(pool, cfg.ExtraCAFile); err != nil {
+				return nil, err
+			} else {
+				pool = p
+			}
+			tlsConf.RootCAs = pool
+		} else if cfg.ExtraCAFile != "" {
+			pool, err := appendCertsFromFile(nil, cfg.ExtraCAFile)
+			if err != nil {
+				return nil, err
+			}
 			tlsConf.RootCAs = pool
 		}
 		return credentials.NewTLS(tlsConf), nil
@@ -140,6 +159,17 @@ func ClientTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials
 		if !pool.AppendCertsFromPEM(caPEM) {
 			return nil, errors.New("invalid CA PEM")
 		}
+		if p, err := appendCertsFromFile(pool, cfg.ExtraCAFile); err != nil {
+			return nil, err
+		} else {
+			pool = p
+		}
+		tlsConf.RootCAs = pool
+	} else if cfg.ExtraCAFile != "" {
+		pool, err := appendCertsFromFile(nil, cfg.ExtraCAFile)
+		if err != nil {
+			return nil, err
+		}
 		tlsConf.RootCAs = pool
 	}
 	if cfg.ClientCertFile != "" && cfg.ClientKeyFile != "" {
@@ -150,4 +180,23 @@ func ClientTransportCredentials(cfg TLSConfig) (credentials.TransportCredentials
 		tlsConf.Certificates = []tls.Certificate{cert}
 	}
 	return credentials.NewTLS(tlsConf), nil
+}
+
+// appendCertsFromFile appends PEM certificates from path to pool (creates a pool if nil).
+func appendCertsFromFile(pool *x509.CertPool, path string) (*x509.CertPool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return pool, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(b) {
+		return nil, fmt.Errorf("invalid CA PEM in %s", path)
+	}
+	return pool, nil
 }

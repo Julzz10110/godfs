@@ -2,6 +2,7 @@ package security
 
 import (
 	"strings"
+	"sync/atomic"
 )
 
 // Perm is a coarse capability for namespace paths.
@@ -127,7 +128,7 @@ func PermFromMethod(fullMethod string) Perm {
 		return PermAdmin
 	case "/godfs.v1.MasterService/ListMasters", "/godfs.v1.MasterService/AddMaster", "/godfs.v1.MasterService/RemoveMaster":
 		return PermAdmin
-	case "/godfs.v1.MasterService/ListChunkNodes":
+	case "/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow":
 		return PermAdmin
 	default:
 		return PermAdmin
@@ -137,4 +138,34 @@ func PermFromMethod(fullMethod string) Perm {
 // IsRename reports whether the method is Rename (needs two path checks).
 func IsRename(fullMethod string) bool {
 	return fullMethod == "/godfs.v1.MasterService/Rename"
+}
+
+// RBACHolder holds the active RBAC engine for interceptors; supports hot-swap when reloading rules from disk.
+type RBACHolder struct {
+	p atomic.Pointer[RBAC]
+}
+
+// NewRBACHolder wraps an initial non-nil RBAC instance.
+func NewRBACHolder(initial *RBAC) *RBACHolder {
+	h := &RBACHolder{}
+	if initial != nil {
+		h.p.Store(initial)
+	}
+	return h
+}
+
+// Current returns the active RBAC (may be nil only before first Store).
+func (h *RBACHolder) Current() *RBAC {
+	if h == nil {
+		return nil
+	}
+	return h.p.Load()
+}
+
+// Store replaces the active RBAC (no-op if next is nil).
+func (h *RBACHolder) Store(next *RBAC) {
+	if h == nil || next == nil {
+		return
+	}
+	h.p.Store(next)
 }

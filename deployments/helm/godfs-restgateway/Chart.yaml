@@ -1,0 +1,6 @@
+apiVersion: v2
+name: godfs-restgateway
+description: Minimal Helm chart for goDFS REST gateway only (HTTP/HTTPS to Master).
+type: application
+version: 0.1.0
+appVersion: "1.0"

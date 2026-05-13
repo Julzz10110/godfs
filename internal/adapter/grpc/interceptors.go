@@ -14,12 +14,12 @@ import (
 
 type masterInterceptors struct {
 	Auth  *security.Auth
-	RBAC  *security.RBAC
+	RBAC  *security.RBACHolder
 	Audit *security.AuditLogger
 }
 
 // NewMasterUnaryInterceptor enforces auth + RBAC + audit when auth is configured.
-func NewMasterUnaryInterceptor(auth *security.Auth, rbac *security.RBAC, audit *security.AuditLogger) grpc.UnaryServerInterceptor {
+func NewMasterUnaryInterceptor(auth *security.Auth, rbac *security.RBACHolder, audit *security.AuditLogger) grpc.UnaryServerInterceptor {
 	m := &masterInterceptors{Auth: auth, RBAC: rbac, Audit: audit}
 	return m.unary
 }
@@ -34,9 +34,10 @@ func (m *masterInterceptors) unary(ctx context.Context, req interface{}, info *g
 	}
 	path, oldPath, newPath := masterPaths(info.FullMethod, req)
 	want := security.PermFromMethod(info.FullMethod)
+	rb := m.RBAC.Current()
 
 	if want == security.PermNode {
-		if m.RBAC == nil || !m.RBAC.Allowed(principal, "/", security.PermNode) {
+		if rb == nil || !rb.Allowed(principal, "/", security.PermNode) {
 			return nil, status.Error(codes.PermissionDenied, "node permission required")
 		}
 	} else {
@@ -44,10 +45,10 @@ func (m *masterInterceptors) unary(ctx context.Context, req interface{}, info *g
 			return nil, status.Error(codes.PermissionDenied, "cluster principal cannot call this method")
 		}
 		if info.FullMethod == "/godfs.v1.MasterService/Rename" {
-			if m.RBAC == nil || !m.RBAC.AllowedRename(principal, oldPath, newPath) {
+			if rb == nil || !rb.AllowedRename(principal, oldPath, newPath) {
 				return nil, status.Error(codes.PermissionDenied, "rename not allowed")
 			}
-		} else if !m.RBAC.Allowed(principal, path, want) {
+		} else if rb == nil || !rb.Allowed(principal, path, want) {
 			return nil, status.Error(codes.PermissionDenied, "forbidden")
 		}
 	}
@@ -108,7 +109,7 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 		}
 	case "/godfs.v1.MasterService/CreateSnapshot", "/godfs.v1.MasterService/ListSnapshots",
 		"/godfs.v1.MasterService/GetSnapshot", "/godfs.v1.MasterService/DeleteSnapshot",
-		"/godfs.v1.MasterService/ListChunkNodes":
+		"/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow":
 		return "/", "", ""
 	}
 	return "/", "", ""

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -22,7 +23,7 @@ func main() {
 	args := pflag.Args()
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: godfs-client [--master addr] <command> [args]")
-		fmt.Fprintln(os.Stderr, "commands: mkdir create write read rm mv ls stat snapshot masters nodes")
+		fmt.Fprintln(os.Stderr, "commands: mkdir create write read rm mv ls stat snapshot masters nodes rebalance-run")
 		os.Exit(2)
 	}
 
@@ -181,6 +182,25 @@ func main() {
 			err = c.RestoreSnapshot(ctx, &man, force)
 		default:
 			log.Fatalf("unknown snapshot subcommand %q", args[1])
+		}
+	case "rebalance-run":
+		steps := int32(1)
+		if len(args) >= 2 && args[1] == "--steps" {
+			if len(args) != 3 {
+				log.Fatal("rebalance-run [--steps N]")
+			}
+			n, e := strconv.Atoi(args[2])
+			if e != nil || n < 1 {
+				log.Fatal("rebalance-run --steps N (N >= 1)")
+			}
+			steps = int32(n)
+		} else if len(args) > 1 {
+			log.Fatal("rebalance-run [--steps N]")
+		}
+		var ex int32
+		ex, err = c.RunRebalanceNow(ctx, steps)
+		if err == nil {
+			fmt.Printf("executed=%d\n", ex)
 		}
 	case "nodes":
 		var nodes []*godfsv1.ChunkNodeEntry

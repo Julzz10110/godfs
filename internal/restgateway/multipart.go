@@ -312,3 +312,43 @@ func (m *multipartManager) Abort(uploadID string) {
 	_ = os.RemoveAll(m.uploadDir(uploadID))
 	m.locks.Delete(uploadID)
 }
+
+// MultipartListedPart describes one uploaded part for list API.
+type MultipartListedPart struct {
+	PartNumber int    `json:"part_number"`
+	SizeBytes  int64  `json:"size_bytes"`
+	ETag       string `json:"etag"`
+}
+
+// ListParts returns sorted uploaded parts for an uploadId (best-effort; omits unreadable files).
+func (m *multipartManager) ListParts(uploadID string) ([]MultipartListedPart, error) {
+	dir := m.uploadDir(uploadID)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil, os.ErrNotExist
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []MultipartListedPart
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "part-") {
+			continue
+		}
+		nStr := strings.TrimPrefix(name, "part-")
+		partNum, err := strconv.Atoi(nStr)
+		if err != nil || partNum < 1 {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(b)
+		etag := "sha256-" + hex.EncodeToString(sum[:])
+		out = append(out, MultipartListedPart{PartNumber: partNum, SizeBytes: int64(len(b)), ETag: etag})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PartNumber < out[j].PartNumber })
+	return out, nil
+}

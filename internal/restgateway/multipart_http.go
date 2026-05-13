@@ -77,6 +77,28 @@ func (s *Server) handleMultipartUploadPart(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleMultipartListParts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, errJSON{Error: "method not allowed"})
+		return
+	}
+	uploadID := strings.TrimSpace(r.PathValue("uploadId"))
+	if uploadID == "" {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "missing upload id"})
+		return
+	}
+	parts, err := s.multipart().ListParts(uploadID)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, http.StatusNotFound, errJSON{Error: "upload not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errJSON{Error: "list parts failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"parts": parts})
+}
+
 func (s *Server) handleMultipartComplete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, errJSON{Error: "method not allowed"})

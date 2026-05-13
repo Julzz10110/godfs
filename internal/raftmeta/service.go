@@ -338,6 +338,38 @@ func (s *Service) ClearRebalanceTask(ctx context.Context, chunkID domain.ChunkID
 	return err
 }
 
+// RunRebalanceSteps runs up to maxSteps rebalance plan+execute iterations (admin RPC path).
+func (s *Service) RunRebalanceSteps(ctx context.Context, maxSteps int) (int, error) {
+	if maxSteps <= 0 {
+		maxSteps = 1
+	}
+	if maxSteps > 200 {
+		maxSteps = 200
+	}
+	now := time.Now().UTC()
+	done := 0
+	for i := 0; i < maxSteps; i++ {
+		act, err := s.PlanRebalance(now)
+		if err != nil {
+			return done, err
+		}
+		if act == nil {
+			return done, nil
+		}
+		if act.Unrepairable {
+			return done, nil
+		}
+		if err := s.ExecuteRebalance(ctx, act); err != nil {
+			return done, err
+		}
+		done++
+		tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = s.ClearRebalanceTask(tctx, act.ChunkID)
+		cancel()
+	}
+	return done, nil
+}
+
 func (s *Service) RebalanceAttempts(chunkID domain.ChunkID) int {
 	s.fsm.mu.RLock()
 	defer s.fsm.mu.RUnlock()

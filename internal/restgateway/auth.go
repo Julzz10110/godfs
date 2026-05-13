@@ -3,6 +3,7 @@ package restgateway
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 
 	"google.golang.org/grpc/metadata"
@@ -23,7 +24,15 @@ func WithBearerAuth(ctx context.Context, authorizationHeader string) context.Con
 // OutgoingRPCContext builds a context for outbound gRPC from an HTTP request: Bearer auth and x-request-id (when set by [WithRequestID]).
 func OutgoingRPCContext(r *http.Request) context.Context {
 	ctx := r.Context()
-	ctx = WithBearerAuth(ctx, r.Header.Get("Authorization"))
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if auth == "" && strings.HasPrefix(r.URL.Path, "/v1/fs/content") {
+		if p, ok := requirePath(r.URL.Query().Get("path")); ok && presignedGETValid(r, p) {
+			if ub := strings.TrimSpace(os.Getenv("GODFS_REST_PRESIGN_UPSTREAM_BEARER")); ub != "" {
+				auth = "Bearer " + ub
+			}
+		}
+	}
+	ctx = WithBearerAuth(ctx, auth)
 	if id := strings.TrimSpace(RequestIDFromContext(ctx)); id != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-request-id", id)
 	}

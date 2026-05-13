@@ -1,0 +1,19 @@
+namespace: godfs
+
+image:
+  repository: godfs-restgateway
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+service:
+  type: ClusterIP
+  port: 8080
+
+env:
+  GODFS_MASTER: "godfs-master:9090"
+  GODFS_REST_LISTEN: "0.0.0.0:8080"
+  GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+
+resources: {}

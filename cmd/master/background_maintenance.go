@@ -176,6 +176,7 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 				}
 				st := rstore.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				observability.SetMaintQueueDepth(st.RebalanceQueueDepth, st.GCQueuedChunks)
 				f, d, c, b := rstore.NamespaceSnapshot()
 				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
@@ -249,6 +250,7 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 				}
 				st := rstore.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				observability.SetMaintQueueDepth(st.RebalanceQueueDepth, st.GCQueuedChunks)
 				f, d, c, b := rstore.NamespaceSnapshot()
 				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
@@ -394,6 +396,7 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 				}
 				st := m.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				observability.SetMaintQueueDepth(st.RebalanceQueueDepth, st.GCQueuedChunks)
 				f, d, c, b := m.NamespaceSnapshot()
 				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{
@@ -458,6 +461,7 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 				}
 				st := m.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
+				observability.SetMaintQueueDepth(st.RebalanceQueueDepth, st.GCQueuedChunks)
 				f, d, c, b := m.NamespaceSnapshot()
 				observability.SetNamespaceSnapshot(f, d, c, b)
 				observability.SetChunkNodesSREStats(observability.ChunkNodesSREStats{

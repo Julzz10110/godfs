@@ -415,6 +415,18 @@ func (m *MasterServer) ListChunkNodes(ctx context.Context, _ *godfsv1.ListChunkN
 	return &godfsv1.ListChunkNodesResponse{Nodes: out}, nil
 }
 
+func (m *MasterServer) RunRebalanceNow(ctx context.Context, req *godfsv1.RunRebalanceNowRequest) (*godfsv1.RunRebalanceNowResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	n := int(req.GetMaxSteps())
+	ex, err := m.Store.RunRebalanceSteps(ctx, n)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.RunRebalanceNowResponse{Executed: int32(ex)}, nil
+}
+
 func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
 	if m == nil {
 		return nil

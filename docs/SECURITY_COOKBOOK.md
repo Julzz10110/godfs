@@ -1,6 +1,6 @@
 # Security cookbook
 
-This is a practical guide for operators and API consumers.
+This is a practical guide for operators and API consumers. **Navigation:** see also [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
 ## Authentication
 
@@ -45,6 +45,7 @@ Set:
 - `GODFS_TLS_ENABLED=1`
 - `GODFS_TLS_CERT_FILE`, `GODFS_TLS_KEY_FILE`
 - `GODFS_TLS_CA_FILE` (enables **mTLS**: server verifies client certs)
+- Optional **`GODFS_TLS_EXTRA_CA_FILE`**: append PEM roots (dual CA / cross-sign bridge) to the same trust pool as `GODFS_TLS_CA_FILE` for both server `ClientCAs` and client `RootCAs`.
 
 ### REST gateway inbound HTTPS (optional)
 
@@ -86,6 +87,19 @@ Master and Chunk unary RPCs (process-wide token bucket):
 
 On the **Master**, `RegisterNode` and `Heartbeat` are **exempt** so chunk clusters are not starved by the same bucket as user metadata RPCs. Streaming RPCs on Chunk are not limited by this env (baseline).
 
+## REST gateway (abuse surface)
+
+Optional process-wide token bucket for **incoming HTTP** (REST gateway):
+
+- `GODFS_REST_RATE_LIMIT_RPS` — sustained requests per second (`0` or unset disables)
+- `GODFS_REST_RATE_LIMIT_BURST` — burst size (defaults when RPS is set)
+
+**CORS** (browser integrations): `GODFS_REST_CORS_ALLOW_ORIGINS` and related `GODFS_REST_CORS_*` variables; defaults are conservative (no origins until configured).
+
+Upload and JSON body caps, streaming buffer sizes, HTTPS for the gateway are documented under **REST** in [`docs/EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md).
+
+**Presigned read URLs:** when `GODFS_REST_PRESIGN_HMAC_SECRET` is set on the gateway, clients can call `GET /v1/fs/content` with `godfs_exp` + `godfs_sig` (see EXTERNAL_ACCESS). Use **`GODFS_REST_PRESIGN_UPSTREAM_BEARER`** so the gateway can authenticate to a secured Master on behalf of anonymous HTTP clients.
+
 ## Secrets in Kubernetes (External Secrets baseline)
 
 See examples:
@@ -102,4 +116,5 @@ Workloads:
 - **TLS cert/key & server-side CA**: rotate in secret manager → ESO updates Secret → processes reload (no restart).
 - **JWKS**: rotate keys on IdP with overlap → goDFS validates via cached/auto-refreshed JWKS.
 - **API keys / cluster key**: baseline is rolling restart unless you add explicit reload logic for these env-backed values.
+- **RBAC JSON file**: set `GODFS_RBAC_JSON=@/path/to/rules.json` and **`GODFS_RBAC_RELOAD_INTERVAL`** (e.g. `30s`) on Master to pick up edits without pod restart.
 

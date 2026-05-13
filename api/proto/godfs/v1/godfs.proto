@@ -29,6 +29,8 @@ service MasterService {
   rpc RemoveMaster(RemoveMasterRequest) returns (RemoveMasterResponse);
   // Registered chunk nodes + liveness (admin-only; read-only on current metadata state).
   rpc ListChunkNodes(ListChunkNodesRequest) returns (ListChunkNodesResponse);
+  // Leader-only: run up to max_steps rebalance plan+execute iterations (admin).
+  rpc RunRebalanceNow(RunRebalanceNowRequest) returns (RunRebalanceNowResponse);
 }
 
 message RegisterNodeRequest {
@@ -260,6 +262,15 @@ message ListChunkNodesRequest {}
 
 message ListChunkNodesResponse {
   repeated ChunkNodeEntry nodes = 1;
+}
+
+message RunRebalanceNowRequest {
+  // Number of plan+execute iterations (default 1 when unset/0; capped at 200 server-side).
+  int32 max_steps = 1;
+}
+
+message RunRebalanceNowResponse {
+  int32 executed = 1;
 }
 
 message ChunkNodeEntry {

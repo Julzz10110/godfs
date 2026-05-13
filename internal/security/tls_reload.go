@@ -90,7 +90,11 @@ func (r *certReloader) reload() error {
 		if !pool.AppendCertsFromPEM(caPEM) {
 			return errors.New("invalid CA PEM")
 		}
-		cas = pool
+		if p, err := appendCertsFromFile(pool, r.cfg.ExtraCAFile); err != nil {
+			return err
+		} else {
+			cas = p
+		}
 	}
 
 	r.mu.Lock()

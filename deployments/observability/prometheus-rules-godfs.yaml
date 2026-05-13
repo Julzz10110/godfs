@@ -50,3 +50,21 @@ spec:
           annotations:
             summary: "goDFS: large pending delete backlog"
             description: "Many pending DeleteChunk entries; chunk nodes may be down or DeleteChunk failing. Check godfs_maint_delete_errors_total and chunk health."
+
+        - alert: GodfsRebalanceQueueHigh
+          expr: max(godfs_maint_rebalance_queue_depth) > 200
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: rebalance queue depth is high"
+            description: "Many chunk rebalance state machines are active. Check godfs_maint_rebalance_errors_total and chunk connectivity."
+
+        - alert: GodfsHealingMayBeStalled
+          expr: max(godfs_data_under_replicated_chunks) > 0 and sum(rate(godfs_maint_rebalance_actions_total[20m])) == 0
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: under-replicated chunks but no recent rebalance actions"
+            description: "Master sees under-replicated chunks but no rebalance actions were recorded in 20m. Verify leader, rebalancer interval, maintenance limits (GODFS_MAINT_*), and chunk errors."

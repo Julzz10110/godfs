@@ -383,6 +383,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("rbac: %v", err)
 	}
+	rbacHolder := security.NewRBACHolder(rbac)
+	if d := security.RBACReloadInterval(); d > 0 {
+		go security.LoopRBACFileReload(context.Background(), rbacHolder, d)
+	}
 	audit, err := security.NewAuditLoggerFromEnv()
 	if err != nil {
 		log.Fatalf("audit: %v", err)
@@ -393,7 +397,7 @@ func main() {
 		unary = append(unary, rl)
 	}
 	if auth.Enabled {
-		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(auth, rbac, audit))
+		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(auth, rbacHolder, audit))
 	}
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),

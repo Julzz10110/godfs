@@ -426,3 +426,34 @@ func (s *Store) OrphanGCOnce(ctx context.Context, minAge time.Duration, maxDelet
 	}
 	return nil
 }
+
+// RunRebalanceSteps runs up to maxSteps rebalance plan+execute iterations (admin RPC path).
+// maxSteps is clamped to [1, 200]. Unrepairable plans stop the loop without error (background marks state).
+func (s *Store) RunRebalanceSteps(ctx context.Context, maxSteps int) (int, error) {
+	if maxSteps <= 0 {
+		maxSteps = 1
+	}
+	if maxSteps > 200 {
+		maxSteps = 200
+	}
+	now := time.Now().UTC()
+	done := 0
+	for i := 0; i < maxSteps; i++ {
+		act, err := s.PlanRebalance(now)
+		if err != nil {
+			return done, err
+		}
+		if act == nil {
+			return done, nil
+		}
+		if act.Unrepairable {
+			return done, nil
+		}
+		if err := s.ExecuteRebalance(ctx, act); err != nil {
+			return done, err
+		}
+		done++
+		s.ClearRebalanceTask(act.ChunkID)
+	}
+	return done, nil
+}

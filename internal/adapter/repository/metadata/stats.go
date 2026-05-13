@@ -14,6 +14,11 @@ type DataPlaneStats struct {
 	PendingDeletes        int
 	UnrepairableChunks    int
 
+	// RebalanceQueueDepth is the number of chunk IDs with in-flight rebalance state machines.
+	RebalanceQueueDepth int
+	// GCQueuedChunks is the number of chunk IDs that have at least one pending DeleteChunk entry.
+	GCQueuedChunks int
+
 	ChunkNodesAlive int
 	ChunkNodesDead  int
 }
@@ -53,6 +58,8 @@ func (s *Store) DataPlaneStats(at time.Time) DataPlaneStats {
 	for _, addrs := range s.pendingDeletes {
 		st.PendingDeletes += len(addrs)
 	}
+	st.RebalanceQueueDepth = len(s.rebalanceTasks)
+	st.GCQueuedChunks = len(s.pendingDeletes)
 
 	// Chunk node liveness summary.
 	if s.nodeDeadAfter > 0 {
