@@ -21,13 +21,29 @@ func WithBearerAuth(ctx context.Context, authorizationHeader string) context.Con
 	return metadata.AppendToOutgoingContext(ctx, "authorization", h)
 }
 
+func presignUpstreamBearer(r *http.Request, path string) string {
+	if !strings.HasPrefix(r.URL.Path, "/v1/fs/content") {
+		return ""
+	}
+	if _, ok := requirePath(path); !ok {
+		return ""
+	}
+	if !contentAuthOK(r, path) {
+		return ""
+	}
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv("GODFS_REST_PRESIGN_UPSTREAM_BEARER"))
+}
+
 // OutgoingRPCContext builds a context for outbound gRPC from an HTTP request: Bearer auth and x-request-id (when set by [WithRequestID]).
 func OutgoingRPCContext(r *http.Request) context.Context {
 	ctx := r.Context()
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if auth == "" && strings.HasPrefix(r.URL.Path, "/v1/fs/content") {
-		if p, ok := requirePath(r.URL.Query().Get("path")); ok && presignedGETValid(r, p) {
-			if ub := strings.TrimSpace(os.Getenv("GODFS_REST_PRESIGN_UPSTREAM_BEARER")); ub != "" {
+		if p, ok := requirePath(r.URL.Query().Get("path")); ok {
+			if ub := presignUpstreamBearer(r, p); ub != "" {
 				auth = "Bearer " + ub
 			}
 		}

@@ -84,6 +84,8 @@ Master and Chunk unary RPCs (process-wide token bucket):
 
 - `GODFS_GRPC_RATE_LIMIT_RPS` — requests/sec (omit or `0` to disable)
 - `GODFS_GRPC_RATE_LIMIT_BURST` — token bucket burst (default `max(10, ceil(2*RPS))`)
+- `GODFS_GRPC_PEER_RATE_LIMIT_RPS` / `GODFS_GRPC_PEER_RATE_LIMIT_BURST` — per-caller bucket (mTLS client CN, else Bearer token hash)
+- `GODFS_API_KEYS=@/path/keys` and `GODFS_CLUSTER_KEY=@/path/key` — file-backed secrets; `GODFS_AUTH_RELOAD_INTERVAL` (≥ `2s`) hot-reloads without restart
 
 On the **Master**, `RegisterNode` and `Heartbeat` are **exempt** so chunk clusters are not starved by the same bucket as user metadata RPCs. Streaming RPCs on Chunk are not limited by this env (baseline).
 
@@ -98,7 +100,7 @@ Optional process-wide token bucket for **incoming HTTP** (REST gateway):
 
 Upload and JSON body caps, streaming buffer sizes, HTTPS for the gateway are documented under **REST** in [`docs/EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md).
 
-**Presigned read URLs:** when `GODFS_REST_PRESIGN_HMAC_SECRET` is set on the gateway, clients can call `GET /v1/fs/content` with `godfs_exp` + `godfs_sig` (see EXTERNAL_ACCESS). Use **`GODFS_REST_PRESIGN_UPSTREAM_BEARER`** so the gateway can authenticate to a secured Master on behalf of anonymous HTTP clients.
+**Presigned content URLs:** when `GODFS_REST_PRESIGN_HMAC_SECRET` is set on the gateway, clients can call `GET` or `PUT /v1/fs/content` with `godfs_exp` + `godfs_sig` (see EXTERNAL_ACCESS). Use **`GODFS_REST_PRESIGN_UPSTREAM_BEARER`** so the gateway can authenticate to a secured Master on behalf of anonymous HTTP clients.
 
 ## Secrets in Kubernetes (External Secrets baseline)
 

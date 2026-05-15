@@ -64,7 +64,7 @@ Architectural constraints:
 
 **Limits:** for `PUT`, see **`GODFS_REST_MAX_UPLOAD_BYTES`** / **`GODFS_REST_MAX_BODY_BYTES`** in §5. For **`GET`**, the response is streamed in segments (`GODFS_REST_GET_STREAM_BYTES`, default **4 MiB** per internal read); gateway peak memory does not grow with file size like a single large buffer.
 
-**Presigned GET (optional):** when **`GODFS_REST_PRESIGN_HMAC_SECRET`** is set (≥ 16 characters), `GET /v1/fs/content?path=…` may include **`godfs_exp`** (Unix expiry) and **`godfs_sig`** = hex(HMAC-SHA256(secret, string `v1|GET|<path>|<exp>`)). If the cluster requires a Bearer to Master, set **`GODFS_REST_PRESIGN_UPSTREAM_BEARER`** — the token the gateway attaches to outgoing gRPC for those requests.
+**Presigned GET/PUT (optional):** when **`GODFS_REST_PRESIGN_HMAC_SECRET`** is set (≥ 16 characters), `GET` or `PUT /v1/fs/content?path=…` may include **`godfs_exp`** (Unix expiry) and **`godfs_sig`** = hex(HMAC-SHA256(secret, string `v1|<METHOD>|<path>|<exp>`) where `METHOD` is `GET` or `PUT`). Without `Authorization`, the gateway rejects content requests when the secret is configured. If the cluster requires a Bearer to Master, set **`GODFS_REST_PRESIGN_UPSTREAM_BEARER`** — the token the gateway attaches to outgoing gRPC for presigned requests.
 
 ### 2.5. Snapshots
 

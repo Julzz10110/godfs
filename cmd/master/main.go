@@ -378,6 +378,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("auth config: %v", err)
 	}
+	authHolder := security.NewAuthHolder(auth)
+	if d := security.AuthReloadInterval(); d > 0 {
+		go security.LoopAuthFileReload(context.Background(), authHolder, d)
+	}
 	rbacJSON := security.RBACRulesJSON()
 	rbac, err := security.NewRBAC(rbacJSON, rbacJSON == "")
 	if err != nil {
@@ -396,8 +400,8 @@ func main() {
 	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
 		unary = append(unary, rl)
 	}
-	if auth.Enabled {
-		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(auth, rbacHolder, audit))
+	if authHolder.Current().Enabled {
+		unary = append(unary, grpcsvc.NewMasterUnaryInterceptor(authHolder, rbacHolder, audit))
 	}
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),

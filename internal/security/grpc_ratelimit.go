@@ -12,26 +12,31 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GRPCUnaryRateLimitFromEnv returns a unary server interceptor when GODFS_GRPC_RATE_LIMIT_RPS is set
-// to a positive value. It applies a single process-wide token bucket (protects CPU from RPC floods).
+// GRPCUnaryRateLimitFromEnv returns a unary server interceptor when global and/or per-peer limits are configured.
 //
-// Master: RegisterNode and Heartbeat are exempt so chunk clusters are not throttled against the same bucket.
+// Global: GODFS_GRPC_RATE_LIMIT_RPS / GODFS_GRPC_RATE_LIMIT_BURST (process-wide bucket).
+// Per-peer: GODFS_GRPC_PEER_RATE_LIMIT_RPS / GODFS_GRPC_PEER_RATE_LIMIT_BURST (key = mTLS CN or Bearer hash).
 //
-// Env:
-//   - GODFS_GRPC_RATE_LIMIT_RPS (float64, required to enable)
-//   - GODFS_GRPC_RATE_LIMIT_BURST (int, default max(10, ceil(2*RPS)))
+// Master: RegisterNode and Heartbeat are exempt.
 func GRPCUnaryRateLimitFromEnv() grpc.UnaryServerInterceptor {
 	rps, burst := parseGRPCRateLimitEnv()
-	if rps <= 0 || burst <= 0 {
+	var global *rate.Limiter
+	if rps > 0 && burst > 0 {
+		global = rate.NewLimiter(rate.Limit(rps), burst)
+	}
+	peerLim := newPeerRateLimiterFromEnv()
+	if global == nil && peerLim == nil {
 		return nil
 	}
-	lim := rate.NewLimiter(rate.Limit(rps), burst)
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if exemptFromGRPCUnaryRateLimit(info.FullMethod) {
 			return handler(ctx, req)
 		}
-		if !lim.Allow() {
+		if global != nil && !global.Allow() {
 			return nil, status.Error(codes.ResourceExhausted, "grpc rate limit exceeded")
+		}
+		if peerLim != nil && !peerLim.allow(grpcRateLimitPeerKey(ctx)) {
+			return nil, status.Error(codes.ResourceExhausted, "grpc peer rate limit exceeded")
 		}
 		return handler(ctx, req)
 	}

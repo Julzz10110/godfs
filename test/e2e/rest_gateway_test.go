@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -613,6 +614,124 @@ func TestE2E_RESTGateway_RateLimit_429(t *testing.T) {
 	if r2.StatusCode != http.StatusTooManyRequests {
 		b, _ := io.ReadAll(r2.Body)
 		t.Fatalf("second status=%d body=%q", r2.StatusCode, string(b))
+	}
+}
+
+func TestE2E_RESTGateway_PresignedPUT(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("GODFS_REST_PRESIGN_HMAC_SECRET", string(secret))
+
+	const chunkSize = 256 * 1024
+	_, cl := e2e.StartMaster(t, chunkSize, 1)
+	dir := t.TempDir()
+	cl.AddChunkServer(t, "chunk-a", filepath.Join(dir, "c0"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gwCli, err := client.NewGateway(cl.MasterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gwCli.Close()
+
+	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
+	mux := http.NewServeMux()
+	srv.Register(mux)
+	httpSrv := httptest.NewServer(restgateway.WithRequestID(mux))
+	defer httpSrv.Close()
+
+	doJSON := func(method, path string, body any) *http.Response {
+		t.Helper()
+		var r io.Reader
+		if body != nil {
+			b, err := json.Marshal(body)
+			if err != nil {
+				t.Fatalf("json: %v", err)
+			}
+			r = bytes.NewReader(b)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, httpSrv.URL+path, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	mustNoContent := func(resp *http.Response) {
+		t.Helper()
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status=%d body=%q", resp.StatusCode, string(b))
+		}
+	}
+
+	const fsPath = "/rg-presign/a.bin"
+	mustNoContent(doJSON("POST", "/v1/fs/mkdir", map[string]string{"path": "/rg-presign"}))
+	mustNoContent(doJSON("POST", "/v1/fs/file", map[string]string{"path": fsPath}))
+
+	payload := []byte("presigned-put-payload")
+	exp := time.Now().Add(10 * time.Minute).Unix()
+	sig := restgateway.PresignPUTSignature(secret, fsPath, exp)
+	q := url.Values{}
+	q.Set("path", fsPath)
+	q.Set("godfs_exp", strconv.FormatInt(exp, 10))
+	q.Set("godfs_sig", sig)
+
+	unauth, err := http.NewRequestWithContext(ctx, "PUT", httpSrv.URL+"/v1/fs/content?path="+fsPath, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthResp, err := http.DefaultClient.Do(unauth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unauthResp.Body.Close()
+	if unauthResp.StatusCode != http.StatusUnauthorized {
+		b, _ := io.ReadAll(unauthResp.Body)
+		t.Fatalf("unauth put status=%d body=%q", unauthResp.StatusCode, string(b))
+	}
+
+	putReq, err := http.NewRequestWithContext(ctx, "PUT", httpSrv.URL+"/v1/fs/content?"+q.Encode(), bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer putResp.Body.Close()
+	if putResp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(putResp.Body)
+		t.Fatalf("presigned put status=%d body=%q", putResp.StatusCode, string(b))
+	}
+
+	getQ := url.Values{}
+	getQ.Set("path", fsPath)
+	getQ.Set("godfs_exp", strconv.FormatInt(exp, 10))
+	getQ.Set("godfs_sig", restgateway.PresignGETSignature(secret, fsPath, exp))
+	getReq, err := http.NewRequestWithContext(ctx, "GET", httpSrv.URL+"/v1/fs/content?"+getQ.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	got, _ := io.ReadAll(getResp.Body)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get status=%d body=%q", getResp.StatusCode, string(got))
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch")
 	}
 }
 

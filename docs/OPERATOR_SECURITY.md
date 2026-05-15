@@ -16,6 +16,8 @@ The following is implemented in code and docs; anything beyond this depends on y
 | `cluster` principal limited to `node`/`admin` | `internal/security/rbac.go` (`PrincipalCluster`) |
 | TLS / JWKS rotation in runbook | `docs/RUNBOOK.md` |
 | Optional unary gRPC rate limit (RPS, burst) | `GODFS_GRPC_RATE_LIMIT_RPS`, `internal/security/grpc_ratelimit.go`; excluded: `RegisterNode`, `Heartbeat` |
+| Per-peer gRPC rate limit | `GODFS_GRPC_PEER_RATE_LIMIT_RPS` / `_BURST`; key = mTLS CN or Bearer hash |
+| Hot-reload API keys / cluster key | `GODFS_API_KEYS=@file`, `GODFS_CLUSTER_KEY=@file`, `GODFS_AUTH_RELOAD_INTERVAL` |
 | RBAC from file + periodic reload without restarting Master | **`GODFS_RBAC_JSON=@/path/rules.json`** and **`GODFS_RBAC_RELOAD_INTERVAL`** (≥ `2s`) |
 | Node diagnostics / forced rebalance | `godfs-client nodes`, `masters`, `snapshot`; **`godfs-client rebalance-run [--steps N]`** (RPC `RunRebalanceNow`, admin) |
 

@@ -29,8 +29,14 @@ type Auth struct {
 
 // LoadAuthFromEnv configures auth when any of GODFS_CLUSTER_KEY, GODFS_API_KEYS, GODFS_JWT_HMAC_SECRET, GODFS_JWT_JWKS_URL is set.
 func LoadAuthFromEnv() (*Auth, error) {
-	cluster := strings.TrimSpace(os.Getenv("GODFS_CLUSTER_KEY"))
-	apiKeysRaw := strings.TrimSpace(os.Getenv("GODFS_API_KEYS"))
+	cluster, err := envFileOrValue(os.Getenv("GODFS_CLUSTER_KEY"))
+	if err != nil {
+		return nil, err
+	}
+	apiKeysRaw, err := envFileOrValue(os.Getenv("GODFS_API_KEYS"))
+	if err != nil {
+		return nil, err
+	}
 	jwtSecret := strings.TrimSpace(os.Getenv("GODFS_JWT_HMAC_SECRET"))
 	jwksURL := strings.TrimSpace(os.Getenv("GODFS_JWT_JWKS_URL"))
 
@@ -39,14 +45,6 @@ func LoadAuthFromEnv() (*Auth, error) {
 		ClusterKey:   cluster,
 	}
 	if apiKeysRaw != "" {
-		// "alice:key1,bob:key2" or path @file
-		if strings.HasPrefix(apiKeysRaw, "@") {
-			b, err := os.ReadFile(strings.TrimPrefix(apiKeysRaw, "@"))
-			if err != nil {
-				return nil, err
-			}
-			apiKeysRaw = string(b)
-		}
 		for _, part := range strings.Split(apiKeysRaw, ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {

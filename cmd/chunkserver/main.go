@@ -153,7 +153,14 @@ func main() {
 		}
 		serverOpts = append(serverOpts, grpc.Creds(creds))
 	}
-	clusterKey := os.Getenv("GODFS_CLUSTER_KEY")
+	auth, err := security.LoadAuthFromEnv()
+	if err != nil {
+		log.Fatalf("auth config: %v", err)
+	}
+	authHolder := security.NewAuthHolder(auth)
+	if d := security.AuthReloadInterval(); d > 0 {
+		go security.LoopAuthFileReload(context.Background(), authHolder, d)
+	}
 	audit, err := security.NewAuditLoggerFromEnv()
 	if err != nil {
 		log.Fatalf("audit: %v", err)
@@ -164,12 +171,12 @@ func main() {
 	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
 		unary = append(unary, rl)
 	}
-	unary = append(unary, grpcsvc.NewChunkUnaryInterceptor(clusterKey, audit, chunkAudit))
+	unary = append(unary, grpcsvc.NewChunkUnaryInterceptor(authHolder, audit, chunkAudit))
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(
 			observability.GRPCStreamPrometheusInterceptor(),
-			grpcsvc.NewChunkStreamInterceptor(clusterKey, audit, chunkAudit),
+			grpcsvc.NewChunkStreamInterceptor(authHolder, audit, chunkAudit),
 		),
 	)
 	srv := grpc.NewServer(serverOpts...)

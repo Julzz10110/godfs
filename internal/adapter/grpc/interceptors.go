@@ -13,22 +13,23 @@ import (
 )
 
 type masterInterceptors struct {
-	Auth  *security.Auth
+	Auth  *security.AuthHolder
 	RBAC  *security.RBACHolder
 	Audit *security.AuditLogger
 }
 
 // NewMasterUnaryInterceptor enforces auth + RBAC + audit when auth is configured.
-func NewMasterUnaryInterceptor(auth *security.Auth, rbac *security.RBACHolder, audit *security.AuditLogger) grpc.UnaryServerInterceptor {
+func NewMasterUnaryInterceptor(auth *security.AuthHolder, rbac *security.RBACHolder, audit *security.AuditLogger) grpc.UnaryServerInterceptor {
 	m := &masterInterceptors{Auth: auth, RBAC: rbac, Audit: audit}
 	return m.unary
 }
 
 func (m *masterInterceptors) unary(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	if m.Auth == nil || !m.Auth.Enabled {
+	auth := m.Auth.Current()
+	if auth == nil || !auth.Enabled {
 		return handler(ctx, req)
 	}
-	principal, err := m.Auth.PrincipalFromContext(ctx)
+	principal, err := auth.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -145,10 +146,14 @@ func chunkUnaryChunkID(fullMethod string, req interface{}) string {
 
 // NewChunkUnaryInterceptor requires GODFS_CLUSTER_KEY to match Bearer when cluster auth is enabled.
 // Optional audit lines for ChunkService when chunkAudit is true and audit is non-nil.
-func NewChunkUnaryInterceptor(clusterKey string, audit *security.AuditLogger, chunkAudit bool) grpc.UnaryServerInterceptor {
-	enabled := strings.TrimSpace(clusterKey) != ""
-	pr := chunkPrincipal(clusterKey)
+func NewChunkUnaryInterceptor(auth *security.AuthHolder, audit *security.AuditLogger, chunkAudit bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		clusterKey := ""
+		if auth != nil {
+			clusterKey = auth.Current().ClusterKey
+		}
+		enabled := strings.TrimSpace(clusterKey) != ""
+		pr := chunkPrincipal(clusterKey)
 		if enabled {
 			if err := checkClusterBearer(ctx, clusterKey); err != nil {
 				return nil, err
@@ -168,10 +173,14 @@ func NewChunkUnaryInterceptor(clusterKey string, audit *security.AuditLogger, ch
 }
 
 // NewChunkStreamInterceptor is the streaming counterpart for ChunkService.
-func NewChunkStreamInterceptor(clusterKey string, audit *security.AuditLogger, chunkAudit bool) grpc.StreamServerInterceptor {
-	enabled := strings.TrimSpace(clusterKey) != ""
-	pr := chunkPrincipal(clusterKey)
+func NewChunkStreamInterceptor(auth *security.AuthHolder, audit *security.AuditLogger, chunkAudit bool) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		clusterKey := ""
+		if auth != nil {
+			clusterKey = auth.Current().ClusterKey
+		}
+		enabled := strings.TrimSpace(clusterKey) != ""
+		pr := chunkPrincipal(clusterKey)
 		if enabled {
 			if err := checkClusterBearer(ss.Context(), clusterKey); err != nil {
 				return err
@@ -195,7 +204,7 @@ func checkClusterBearer(ctx context.Context, want string) error {
 	if !ok {
 		return status.Error(codes.Unauthenticated, "missing metadata")
 	}
-	tok := bearerFromMD(md)
+	tok := security.BearerFromMD(md)
 	if tok == "" {
 		return status.Error(codes.Unauthenticated, "missing authorization")
 	}
@@ -203,19 +212,4 @@ func checkClusterBearer(ctx context.Context, want string) error {
 		return status.Error(codes.Unauthenticated, "invalid cluster credentials")
 	}
 	return nil
-}
-
-func bearerFromMD(md metadata.MD) string {
-	for _, k := range []string{"authorization", "Authorization"} {
-		v := md.Get(k)
-		if len(v) == 0 {
-			continue
-		}
-		tok := strings.TrimSpace(v[0])
-		if len(tok) >= 7 && strings.EqualFold(tok[:7], "bearer ") {
-			return strings.TrimSpace(tok[7:])
-		}
-		return tok
-	}
-	return ""
 }

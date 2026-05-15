@@ -315,7 +315,6 @@ func (s *Server) handleHeadContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, headOnly bool) {
-	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -323,6 +322,10 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 	} else {
 		p = okPath
 	}
+	if !requireContentAuth(w, r, p) {
+		return
+	}
+	ctx := OutgoingRPCContext(r)
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	// Stat first to attach validators and support conditional requests without reading body.
@@ -418,7 +421,6 @@ func (s *Server) handleGetOrHeadContent(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
-	ctx := OutgoingRPCContext(r)
 	p := r.URL.Query().Get("path")
 	if okPath, ok := requirePath(p); !ok {
 		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid or missing path"})
@@ -426,6 +428,10 @@ func (s *Server) handlePutContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p = okPath
 	}
+	if !requireContentAuth(w, r, p) {
+		return
+	}
+	ctx := OutgoingRPCContext(r)
 	max := s.putUploadLimit()
 	if max > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, max+1)
