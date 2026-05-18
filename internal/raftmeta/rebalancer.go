@@ -228,6 +228,24 @@ func (s *Service) ExecuteRebalance(ctx context.Context, act *RebalanceAction) er
 	return s.AddReplica(ctx, act.ChunkID, act.TargetNodeID, act.TargetAddr)
 }
 
+// CountGCDeleteEntriesAtMaxAttempts returns pending delete entries with Attempts >= maxAttempts.
+func (s *Service) CountGCDeleteEntriesAtMaxAttempts(maxAttempts int) int {
+	if maxAttempts <= 0 {
+		return 0
+	}
+	s.fsm.mu.RLock()
+	defer s.fsm.mu.RUnlock()
+	n := 0
+	for _, addrs := range s.fsm.st.PendingDeletes {
+		for _, pd := range addrs {
+			if pd != nil && pd.Attempts >= maxAttempts {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // PlanDeleteGC returns at most one due pending delete action.
 func (s *Service) PlanDeleteGC(at time.Time) (chunkID domain.ChunkID, addr string, attempts int, ok bool) {
 	grace := s.pendingDeleteGrace()

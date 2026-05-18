@@ -44,7 +44,14 @@
 ### Suspected corruption / replica skew
 
 - Metrics: `godfs_data_unrepairable_chunks`, `godfs_data_stale_replicas` (if periodic scan is enabled), `godfs_maint_replica_meta_compare_total`.
+- Enable periodic health scan: **`GODFS_MAINT_HEALTH_SCAN_INTERVAL`** (alias **`GODFS_STALE_REPLICA_GAUGE_INTERVAL`**) on the Master leader; cap load with **`GODFS_MAINT_CHECKSUM_MAX_QPS`**.
+- Policy reference: **`docs/DATA_PLANE.md`**.
 - Actions: compare to a snapshot manifest; restore — `deployments/k8s/dr/README.md`.
+
+### Strict delete GC (`GODFS_GC_STRICT=1`)
+
+- Pending deletes are **not** dropped after **`GODFS_GC_MAX_ATTEMPTS`**; they remain until `DeleteChunk` succeeds on each peer.
+- Watch **`godfs_data_gc_strict_stuck`** and **`godfs_maint_gc_strict_hold_total`**; fix unreachable chunk nodes or network errors (`godfs_maint_delete_errors_total`).
 
 ## Alerting (Prometheus)
 

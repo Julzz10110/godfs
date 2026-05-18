@@ -48,6 +48,9 @@ type maintenanceLoopConfig struct {
 
 	// maintChecksumMaxQPS caps ChecksumChunk RPC rate from maintenance (0 = unlimited).
 	maintChecksumMaxQPS float64
+
+	// gcStrict keeps pending deletes after max attempts instead of abandoning them (GODFS_GC_STRICT).
+	gcStrict bool
 }
 
 // startRaftBackgroundMaintenance runs periodic rebalance, best-effort chunk delete after metadata removal, and orphan file cleanup on the Raft leader.
@@ -196,15 +199,18 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					continue
 				}
 				now := time.Now().UTC()
+				rstore.PurgeExpiredSoftDeletes(now)
 				for i := 0; i < cfg.gcMaxPerTick; i++ {
 					cid, addr, attempts, ok := rstore.PlanDeleteGC(now)
 					if !ok {
 						break
 					}
 					if attempts >= cfg.gcMaxAttempts {
-						uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
-						_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
-						ucancel()
+						if gcAbandonOnMaxAttempts(cfg.gcStrict) {
+							uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
+							_ = rstore.ClearPendingDeleteAddr(uctx, cid, addr)
+							ucancel()
+						}
 						continue
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -247,6 +253,11 @@ func startRaftBackgroundMaintenance(rstore *raftmeta.Service, cfg maintenanceLoo
 					uctx, ucancel := context.WithTimeout(context.Background(), 5*time.Second)
 					_ = rstore.MarkPendingDeleteAttempt(uctx, cid, addr, attempts+1, next)
 					ucancel()
+				}
+				if cfg.gcStrict && cfg.gcMaxAttempts > 0 {
+					observability.SetGCStrictStuck(rstore.CountGCDeleteEntriesAtMaxAttempts(cfg.gcMaxAttempts))
+				} else {
+					observability.SetGCStrictStuck(0)
 				}
 				st := rstore.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)
@@ -413,13 +424,16 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 			defer t.Stop()
 			for range t.C {
 				now := time.Now().UTC()
+				m.PurgeExpiredSoftDeletes(now)
 				for i := 0; i < cfg.gcMaxPerTick; i++ {
 					cid, addr, attempts, ok := m.PlanDeleteGC(now)
 					if !ok {
 						break
 					}
 					if attempts >= cfg.gcMaxAttempts {
-						m.ClearPendingDeleteAddr(cid, addr)
+						if gcAbandonOnMaxAttempts(cfg.gcStrict) {
+							m.ClearPendingDeleteAddr(cid, addr)
+						}
 						continue
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -458,6 +472,11 @@ func startSingleMasterBackgroundMaintenance(m *metadata.Store, cfg maintenanceLo
 					backoff = backoffWithJitter(backoff, cfg.gcBackoffJitterFrac)
 					next := now.Add(backoff).Unix()
 					m.MarkPendingDeleteAttempt(cid, addr, attempts+1, next)
+				}
+				if cfg.gcStrict && cfg.gcMaxAttempts > 0 {
+					observability.SetGCStrictStuck(m.CountGCDeleteEntriesAtMaxAttempts(cfg.gcMaxAttempts))
+				} else {
+					observability.SetGCStrictStuck(0)
 				}
 				st := m.DataPlaneStats(now)
 				observability.SetDataPlaneCoreStats(st.UnderReplicatedChunks, st.PendingDeletes, st.UnrepairableChunks)

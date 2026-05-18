@@ -26,6 +26,7 @@ type gatewayClient interface {
 	Mkdir(ctx context.Context, path string) error
 	Create(ctx context.Context, path string) error
 	Delete(ctx context.Context, path string) error
+	RestoreFile(ctx context.Context, path string) error
 	Rename(ctx context.Context, oldPath, newPath string) error
 	Stat(ctx context.Context, path string) (*client.FileInfo, error)
 	List(ctx context.Context, path string) ([]*godfsv1.DirEntry, error)
@@ -154,6 +155,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/fs/mkdir", s.handleMkdir)
 	mux.HandleFunc("POST /v1/fs/file", s.handleCreateFile)
 	mux.HandleFunc("DELETE /v1/fs", s.handleDelete)
+	mux.HandleFunc("POST /v1/fs/restore", s.handleRestoreFile)
 	mux.HandleFunc("POST /v1/fs/rename", s.handleRename)
 	mux.HandleFunc("GET /v1/fs/content", s.handleGetContent)
 	mux.HandleFunc("HEAD /v1/fs/content", s.handleHeadContent)
@@ -265,6 +267,25 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
 		b.Path = okPath
 	}
 	if err := s.Client.Create(ctx, b.Path); err != nil {
+		writeHTTPError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRestoreFile(w http.ResponseWriter, r *http.Request) {
+	ctx := OutgoingRPCContext(r)
+	var b pathBody
+	if !decodeJSONBody(w, r, &b) {
+		return
+	}
+	if okPath, ok := requirePath(b.Path); !ok {
+		writeJSON(w, http.StatusBadRequest, errJSON{Error: "invalid path"})
+		return
+	} else {
+		b.Path = okPath
+	}
+	if err := s.Client.RestoreFile(ctx, b.Path); err != nil {
 		writeHTTPError(w, r, err)
 		return
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"godfs/internal/dataplane"
 	"godfs/internal/domain"
 	"godfs/internal/placement"
 )
@@ -17,6 +18,8 @@ type State struct {
 	ReplicationFactor int
 	LeaseDur          time.Duration
 	NodeDeadAfter     time.Duration
+	// SoftDeleteGrace is node-local config (not replicated via Raft log); set the same on all masters.
+	SoftDeleteGrace time.Duration
 
 	Nodes        []domain.ChunkNode
 	NodeUsedBytes map[domain.NodeID]int64
@@ -42,12 +45,13 @@ type State struct {
 }
 
 type fileRec struct {
-	ID       domain.FileID
-	Chunks   []domain.ChunkID
-	Size     int64
-	Created  time.Time
-	Modified time.Time
-	Mode     uint32
+	ID            domain.FileID
+	Chunks        []domain.ChunkID
+	Size          int64
+	Created       time.Time
+	Modified      time.Time
+	Mode          uint32
+	DeletedAtUnix int64
 }
 
 type chunkRec struct {
@@ -330,6 +334,9 @@ func (s *State) Rename(oldPath, newPath string) error {
 		return err
 	}
 	if fr, ok := s.Files[oldP]; ok {
+		if !s.fileVisible(fr, time.Now().UTC()) {
+			return domain.ErrNotFound
+		}
 		if _, ok := s.Files[newP]; ok {
 			return domain.ErrAlreadyExists
 		}
@@ -403,7 +410,7 @@ func (s *State) Stat(p string) (isDir bool, size int64, created, modified time.T
 		return false, 0, time.Time{}, time.Time{}, 0, err
 	}
 	fr, ok := s.Files[fp]
-	if !ok {
+	if !ok || !s.fileVisible(fr, time.Now().UTC()) {
 		return false, 0, time.Time{}, time.Time{}, 0, domain.ErrNotFound
 	}
 	return false, fr.Size, fr.Created, fr.Modified, fr.Mode, nil
@@ -439,18 +446,24 @@ func (s *State) ListDir(p string) ([]string, bool, error) {
 			names = append(names, rest)
 		}
 	}
+	at := time.Now().UTC()
 	for fp := range s.Files {
-		if strings.HasPrefix(fp, prefix) {
-			rest := strings.TrimPrefix(fp, prefix)
-			if rest == "" || strings.Contains(rest, "/") {
-				continue
-			}
-			if _, ok := seen[rest]; ok {
-				continue
-			}
-			seen[rest] = struct{}{}
-			names = append(names, rest)
+		if !strings.HasPrefix(fp, prefix) {
+			continue
 		}
+		fr := s.Files[fp]
+		if !s.fileVisible(fr, at) {
+			continue
+		}
+		rest := strings.TrimPrefix(fp, prefix)
+		if rest == "" || strings.Contains(rest, "/") {
+			continue
+		}
+		if _, ok := seen[rest]; ok {
+			continue
+		}
+		seen[rest] = struct{}{}
+		names = append(names, rest)
 	}
 	return names, true, nil
 }
@@ -476,7 +489,7 @@ func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.L
 		return PrepareWriteResult{}, fmt.Errorf("invalid length")
 	}
 	fr, ok := s.Files[fp]
-	if !ok {
+	if !ok || !s.fileVisible(fr, time.Now().UTC()) {
 		return PrepareWriteResult{}, domain.ErrNotFound
 	}
 	idx := offset / s.ChunkSize
@@ -596,7 +609,7 @@ func (s *State) GetChunkForRead(path string, offset int64) (
 		return "", nil, 0, 0, 0, nil, err
 	}
 	fr, ok := s.Files[fp]
-	if !ok {
+	if !ok || !s.fileVisible(fr, time.Now().UTC()) {
 		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 	if offset < 0 || offset >= fr.Size {
@@ -647,6 +660,28 @@ func (s *State) Delete(path string) ([]domain.ChunkDeleteInfo, error) {
 }
 
 func (s *State) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
+	return s.deleteFileAt(fp, time.Now().UTC())
+}
+
+func (s *State) deleteFileAt(fp string, at time.Time) ([]domain.ChunkDeleteInfo, error) {
+	fr, ok := s.Files[fp]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	if fr.DeletedAtUnix > 0 {
+		if s.SoftDeleteGrace > 0 && dataplane.FileReadyToPurge(fr.DeletedAtUnix, at, s.SoftDeleteGrace) {
+			return s.hardDeleteFile(fp)
+		}
+		return nil, nil
+	}
+	if s.SoftDeleteGrace > 0 {
+		fr.DeletedAtUnix = at.Unix()
+		return nil, nil
+	}
+	return s.hardDeleteFile(fp)
+}
+
+func (s *State) hardDeleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 	fr, ok := s.Files[fp]
 	if !ok {
 		return nil, domain.ErrNotFound

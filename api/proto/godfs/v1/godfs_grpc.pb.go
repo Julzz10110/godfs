@@ -23,6 +23,7 @@ const (
 	MasterService_CreateFile_FullMethodName      = "/godfs.v1.MasterService/CreateFile"
 	MasterService_Mkdir_FullMethodName           = "/godfs.v1.MasterService/Mkdir"
 	MasterService_Delete_FullMethodName          = "/godfs.v1.MasterService/Delete"
+	MasterService_RestoreFile_FullMethodName     = "/godfs.v1.MasterService/RestoreFile"
 	MasterService_Rename_FullMethodName          = "/godfs.v1.MasterService/Rename"
 	MasterService_Stat_FullMethodName            = "/godfs.v1.MasterService/Stat"
 	MasterService_ListDir_FullMethodName         = "/godfs.v1.MasterService/ListDir"
@@ -50,6 +51,8 @@ type MasterServiceClient interface {
 	CreateFile(ctx context.Context, in *CreateFileRequest, opts ...grpc.CallOption) (*CreateFileResponse, error)
 	Mkdir(ctx context.Context, in *MkdirRequest, opts ...grpc.CallOption) (*MkdirResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
+	// Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
+	RestoreFile(ctx context.Context, in *RestoreFileRequest, opts ...grpc.CallOption) (*RestoreFileResponse, error)
 	Rename(ctx context.Context, in *RenameRequest, opts ...grpc.CallOption) (*RenameResponse, error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	ListDir(ctx context.Context, in *ListDirRequest, opts ...grpc.CallOption) (*ListDirResponse, error)
@@ -116,6 +119,16 @@ func (c *masterServiceClient) Delete(ctx context.Context, in *DeleteRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteResponse)
 	err := c.cc.Invoke(ctx, MasterService_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *masterServiceClient) RestoreFile(ctx context.Context, in *RestoreFileRequest, opts ...grpc.CallOption) (*RestoreFileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreFileResponse)
+	err := c.cc.Invoke(ctx, MasterService_RestoreFile_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +313,8 @@ type MasterServiceServer interface {
 	CreateFile(context.Context, *CreateFileRequest) (*CreateFileResponse, error)
 	Mkdir(context.Context, *MkdirRequest) (*MkdirResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
+	// Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
+	RestoreFile(context.Context, *RestoreFileRequest) (*RestoreFileResponse, error)
 	Rename(context.Context, *RenameRequest) (*RenameResponse, error)
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
 	ListDir(context.Context, *ListDirRequest) (*ListDirResponse, error)
@@ -343,6 +358,9 @@ func (UnimplementedMasterServiceServer) Mkdir(context.Context, *MkdirRequest) (*
 }
 func (UnimplementedMasterServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedMasterServiceServer) RestoreFile(context.Context, *RestoreFileRequest) (*RestoreFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreFile not implemented")
 }
 func (UnimplementedMasterServiceServer) Rename(context.Context, *RenameRequest) (*RenameResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Rename not implemented")
@@ -484,6 +502,24 @@ func _MasterService_Delete_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MasterServiceServer).Delete(ctx, req.(*DeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MasterService_RestoreFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).RestoreFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_RestoreFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).RestoreFile(ctx, req.(*RestoreFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -816,6 +852,10 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _MasterService_Delete_Handler,
+		},
+		{
+			MethodName: "RestoreFile",
+			Handler:    _MasterService_RestoreFile_Handler,
 		},
 		{
 			MethodName: "Rename",

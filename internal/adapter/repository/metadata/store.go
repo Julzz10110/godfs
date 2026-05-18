@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"godfs/internal/config"
+	"godfs/internal/dataplane"
 	"godfs/internal/domain"
 	"godfs/internal/placement"
 )
@@ -41,6 +42,8 @@ type Store struct {
 
 	// gcPendingDeleteGrace delays the first DeleteChunk attempt after enqueue (soft-delete window).
 	gcPendingDeleteGrace time.Duration
+	// softDeleteGrace keeps deleted files in metadata until purge (0 = immediate hard delete).
+	softDeleteGrace time.Duration
 
 	dirs  map[string]struct{}
 	files map[string]*fileRec
@@ -71,12 +74,13 @@ type rebalanceWork struct {
 }
 
 type fileRec struct {
-	id       domain.FileID
-	chunks   []domain.ChunkID
-	size     int64
-	created  time.Time
-	modified time.Time
-	mode     uint32
+	id            domain.FileID
+	chunks        []domain.ChunkID
+	size          int64
+	created       time.Time
+	modified      time.Time
+	mode          uint32
+	deletedAtUnix int64 // soft-delete tombstone; 0 = active
 }
 
 type chunkRec struct {
@@ -131,6 +135,16 @@ func (s *Store) SetGCPendingDeleteGrace(d time.Duration) {
 		d = 0
 	}
 	s.gcPendingDeleteGrace = d
+}
+
+// SetSoftDeleteGrace configures namespace file trash retention (0 disables soft-delete).
+func (s *Store) SetSoftDeleteGrace(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	s.softDeleteGrace = d
 }
 
 // Heartbeat records liveness and disk telemetry for a chunk node.
@@ -343,11 +357,28 @@ func (s *Store) Delete(_ context.Context, p string) ([]domain.ChunkDeleteInfo, e
 func (s *Store) deleteFile(fp string) ([]domain.ChunkDeleteInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.deleteFileLocked(fp, time.Now().UTC())
+}
 
+func (s *Store) deleteFileLocked(fp string, at time.Time) ([]domain.ChunkDeleteInfo, error) {
 	fr, ok := s.files[fp]
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+	if fr.deletedAtUnix > 0 {
+		if s.softDeleteGrace > 0 && dataplane.FileReadyToPurge(fr.deletedAtUnix, at, s.softDeleteGrace) {
+			return s.hardDeleteFileLocked(fp, fr)
+		}
+		return nil, nil
+	}
+	if s.softDeleteGrace > 0 {
+		fr.deletedAtUnix = at.Unix()
+		return nil, nil
+	}
+	return s.hardDeleteFileLocked(fp, fr)
+}
+
+func (s *Store) hardDeleteFileLocked(fp string, fr *fileRec) ([]domain.ChunkDeleteInfo, error) {
 	var infos []domain.ChunkDeleteInfo
 	for _, cid := range fr.chunks {
 		if cid == "" {
@@ -441,7 +472,7 @@ func (s *Store) renameFile(oldP, newP string) error {
 	defer s.mu.Unlock()
 
 	fr, ok := s.files[oldP]
-	if !ok {
+	if !ok || !s.fileVisibleLocked(fr, time.Now().UTC()) {
 		return domain.ErrNotFound
 	}
 	parent := path.Dir(newP)
@@ -542,7 +573,7 @@ func (s *Store) Stat(_ context.Context, p string) (isDir bool, size int64, creat
 		return true, 0, time.Time{}, time.Time{}, 0o755, nil
 	}
 	fr, ok := s.files[fp]
-	if !ok {
+	if !ok || !s.fileVisibleLocked(fr, time.Now().UTC()) {
 		return false, 0, time.Time{}, time.Time{}, 0, domain.ErrNotFound
 	}
 	return false, fr.size, fr.created, fr.modified, fr.mode, nil
@@ -577,13 +608,19 @@ func (s *Store) ListDir(_ context.Context, p string) ([]string, bool, error) {
 		}
 	}
 
+	at := time.Now().UTC()
 	for f := range s.files {
-		if path.Dir(f) == dir {
-			name := path.Base(f)
-			if _, ok := seen[name]; !ok {
-				seen[name] = struct{}{}
-				names = append(names, name)
-			}
+		if path.Dir(f) != dir {
+			continue
+		}
+		fr := s.files[f]
+		if !s.fileVisibleLocked(fr, at) {
+			continue
+		}
+		name := path.Base(f)
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			names = append(names, name)
 		}
 	}
 
@@ -615,7 +652,7 @@ func (s *Store) PrepareWrite(_ context.Context, fpath string, offset, length int
 	defer s.mu.Unlock()
 
 	fr, ok := s.files[fp]
-	if !ok {
+	if !ok || !s.fileVisibleLocked(fr, time.Now().UTC()) {
 		return "", "", nil, "", domain.LeaseID(""), 0, 0, 0, 0, domain.ErrNotFound
 	}
 
@@ -726,7 +763,7 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 	defer s.mu.RUnlock()
 
 	fr, ok := s.files[fp]
-	if !ok {
+	if !ok || !s.fileVisibleLocked(fr, time.Now().UTC()) {
 		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
 	}
 	if offset < 0 || offset >= fr.size {

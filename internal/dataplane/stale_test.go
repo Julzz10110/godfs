@@ -32,4 +32,14 @@ func TestIsReplicaStaleComparedToMeta(t *testing.T) {
 	if IsReplicaStaleComparedToMeta(meta[:16], bad) {
 		t.Fatal("short meta")
 	}
+	if IsReplicaStaleComparedToMeta(nil, bad) {
+		t.Fatal("nil meta")
+	}
+	zeros := make([]byte, MetadataChunkChecksumBytes)
+	if !IsReplicaStaleComparedToMeta(meta, zeros) {
+		t.Fatal("all-zero replica vs non-zero meta should be stale")
+	}
+	if IsReplicaStaleComparedToMeta(meta, meta[:31]) {
+		t.Fatal("short replica digest")
+	}
 }

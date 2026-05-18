@@ -38,8 +38,12 @@ func (s *State) buildBackupSnapshot(id, label string, at time.Time) *domain.Back
 		ChunkSize:         s.ChunkSize,
 		ReplicationFactor: s.ReplicationFactor,
 	}
+	scanAt := time.Now().UTC()
 	for _, p := range paths {
 		fr := s.Files[p]
+		if !s.fileVisible(fr, scanAt) {
+			continue
+		}
 		fe := domain.BackupFileEntry{
 			Path:       p,
 			Size:       fr.Size,

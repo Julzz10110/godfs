@@ -12,6 +12,7 @@ const (
 	cmdCreateFile   commandType = "create_file"
 	cmdRename       commandType = "rename"
 	cmdDelete       commandType = "delete"
+	cmdRestoreFile  commandType = "restore_file"
 	cmdPrepareWrite commandType = "prepare_write"
 	cmdCommitChunk  commandType = "commit_chunk"
 	cmdHeartbeat    commandType = "heartbeat"

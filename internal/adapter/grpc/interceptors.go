@@ -84,6 +84,10 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 		if r, ok := req.(*godfsv1.DeleteRequest); ok {
 			return r.Path, "", ""
 		}
+	case "/godfs.v1.MasterService/RestoreFile":
+		if r, ok := req.(*godfsv1.RestoreFileRequest); ok {
+			return r.Path, "", ""
+		}
 	case "/godfs.v1.MasterService/Rename":
 		if r, ok := req.(*godfsv1.RenameRequest); ok {
 			return "", r.OldPath, r.NewPath

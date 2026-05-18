@@ -137,6 +137,12 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	return err
 }
 
+// RestoreFile undeletes a file still in the soft-delete trash window (admin RPC).
+func (c *Client) RestoreFile(ctx context.Context, path string) error {
+	_, err := c.master.RestoreFile(ctx, &godfsv1.RestoreFileRequest{Path: path})
+	return err
+}
+
 // Rename renames a file or directory.
 func (c *Client) Rename(ctx context.Context, oldPath, newPath string) error {
 	_, err := c.master.Rename(ctx, &godfsv1.RenameRequest{OldPath: oldPath, NewPath: newPath})

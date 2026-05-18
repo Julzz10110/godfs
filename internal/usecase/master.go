@@ -15,6 +15,7 @@ type MasterStore interface {
 	Mkdir(ctx context.Context, path string) error
 	CreateFile(ctx context.Context, path string) (domain.FileID, error)
 	Delete(ctx context.Context, path string) ([]domain.ChunkDeleteInfo, error)
+	RestoreFile(ctx context.Context, path string) error
 	Rename(ctx context.Context, oldPath, newPath string) error
 
 	Stat(ctx context.Context, path string) (isDir bool, size int64, created, modified time.Time, mode uint32, err error)

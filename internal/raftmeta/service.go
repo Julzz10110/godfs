@@ -173,6 +173,35 @@ func (s *Service) Delete(ctx context.Context, p string) ([]domain.ChunkDeleteInf
 	return infos, nil
 }
 
+// RestoreFile clears a soft-delete tombstone (leader-only Raft mutation).
+func (s *Service) RestoreFile(ctx context.Context, p string) error {
+	b, err := encodeCommand(cmdRestoreFile, struct {
+		Path   string
+		AtUnix int64
+	}{Path: p, AtUnix: time.Now().UTC().Unix()})
+	if err != nil {
+		return err
+	}
+	_, err = s.apply(ctx, b)
+	return err
+}
+
+// SetSoftDeleteGrace configures trash retention (node-local; set homogeneously on all masters).
+func (s *Service) SetSoftDeleteGrace(d time.Duration) {
+	s.fsm.mu.Lock()
+	defer s.fsm.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	s.fsm.st.SoftDeleteGrace = d
+}
+
+func (s *Service) PurgeExpiredSoftDeletes(at time.Time) {
+	s.fsm.mu.Lock()
+	defer s.fsm.mu.Unlock()
+	s.fsm.st.PurgeExpiredSoftDeletes(at)
+}
+
 func (s *Service) Stat(ctx context.Context, p string) (bool, int64, time.Time, time.Time, uint32, error) {
 	_ = ctx
 	s.fsm.mu.RLock()

@@ -9,6 +9,8 @@ service MasterService {
   rpc CreateFile(CreateFileRequest) returns (CreateFileResponse);
   rpc Mkdir(MkdirRequest) returns (MkdirResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
+  // Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
+  rpc RestoreFile(RestoreFileRequest) returns (RestoreFileResponse);
   rpc Rename(RenameRequest) returns (RenameResponse);
   rpc Stat(StatRequest) returns (StatResponse);
   rpc ListDir(ListDirRequest) returns (ListDirResponse);
@@ -60,6 +62,12 @@ message DeleteRequest {
 }
 
 message DeleteResponse {}
+
+message RestoreFileRequest {
+  string path = 1;
+}
+
+message RestoreFileResponse {}
 
 message RenameRequest {
   string old_path = 1;

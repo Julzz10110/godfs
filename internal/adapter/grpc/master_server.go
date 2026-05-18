@@ -136,6 +136,16 @@ func (m *MasterServer) Delete(ctx context.Context, req *godfsv1.DeleteRequest) (
 	return &godfsv1.DeleteResponse{}, nil
 }
 
+func (m *MasterServer) RestoreFile(ctx context.Context, req *godfsv1.RestoreFileRequest) (*godfsv1.RestoreFileResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	if err := m.Store.RestoreFile(ctx, req.GetPath()); err != nil {
+		return nil, mapErr(err)
+	}
+	return &godfsv1.RestoreFileResponse{}, nil
+}
+
 func deleteChunkOnPeer(ctx context.Context, addr, chunkID string) error {
 	var last error
 	for attempt := range 4 {

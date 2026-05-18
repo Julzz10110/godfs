@@ -303,6 +303,24 @@ func (s *Store) ClearPendingDeleteAddr(chunkID domain.ChunkID, addr string) {
 	}
 }
 
+// CountGCDeleteEntriesAtMaxAttempts returns pending delete entries with Attempts >= maxAttempts.
+func (s *Store) CountGCDeleteEntriesAtMaxAttempts(maxAttempts int) int {
+	if maxAttempts <= 0 {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, addrs := range s.pendingDeletes {
+		for _, pd := range addrs {
+			if pd != nil && pd.Attempts >= maxAttempts {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // MarkPendingDeleteAttempt records backoff for a failed DeleteChunk RPC.
 func (s *Store) MarkPendingDeleteAttempt(chunkID domain.ChunkID, addr string, attempts int, nextAttemptUnix int64) {
 	s.mu.Lock()

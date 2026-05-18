@@ -91,6 +91,16 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return infos
 
+	case cmdRestoreFile:
+		var req struct {
+			Path   string
+			AtUnix int64
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		return f.st.RestoreFile(req.Path, time.Unix(req.AtUnix, 0).UTC())
+
 	case cmdPrepareWrite:
 		var req struct {
 			Path      string

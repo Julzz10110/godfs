@@ -41,6 +41,9 @@ var (
 
 	maintChecksumRPCTotal        *prometheus.CounterVec
 	maintReplicaMetaCompareTotal *prometheus.CounterVec
+
+	dpGCStrictStuck      prometheus.Gauge
+	maintGCStrictHoldTotal prometheus.Counter
 )
 
 // InitDataPlaneMetrics registers data plane metrics.
@@ -104,6 +107,15 @@ func InitDataPlaneMetrics() {
 			Name: "godfs_maint_replica_meta_compare_total",
 			Help: "Replica SHA-256 compared to committed metadata checksum during scans / stale counting.",
 		}, []string{"result"}))
+
+		dpGCStrictStuck = mustRegisterGauge(prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "godfs_data_gc_strict_stuck",
+			Help: "Pending DeleteChunk entries at or above max attempts while GODFS_GC_STRICT is enabled (not abandoned).",
+		}))
+		maintGCStrictHoldTotal = mustRegisterCounter(prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "godfs_maint_gc_strict_hold_total",
+			Help: "Times delete-GC refused to drop a pending delete after max attempts (strict mode).",
+		}))
 	})
 }
 
@@ -138,6 +150,20 @@ func SetDataPlaneCoreStats(underReplicated, pendingDeletes, unrepairable int) {
 func SetDataPlaneStaleReplicas(n int) {
 	if dpStaleReplicas != nil {
 		dpStaleReplicas.Set(float64(n))
+	}
+}
+
+// SetGCStrictStuck sets godfs_data_gc_strict_stuck (entries at max delete-GC attempts).
+func SetGCStrictStuck(n int) {
+	if dpGCStrictStuck != nil {
+		dpGCStrictStuck.Set(float64(n))
+	}
+}
+
+// IncGCStrictHold increments godfs_maint_gc_strict_hold_total when strict GC retains pending deletes.
+func IncGCStrictHold() {
+	if maintGCStrictHoldTotal != nil {
+		maintGCStrictHoldTotal.Inc()
 	}
 }
 

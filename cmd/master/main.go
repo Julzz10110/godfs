@@ -192,9 +192,26 @@ func main() {
 	}
 
 	staleReplicaGaugeEvery := time.Duration(0)
-	if v := os.Getenv("GODFS_STALE_REPLICA_GAUGE_INTERVAL"); v != "" {
+	if v := os.Getenv("GODFS_MAINT_HEALTH_SCAN_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			staleReplicaGaugeEvery = d
+		}
+	}
+	if staleReplicaGaugeEvery == 0 {
+		if v := os.Getenv("GODFS_STALE_REPLICA_GAUGE_INTERVAL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				staleReplicaGaugeEvery = d
+			}
+		}
+	}
+	gcStrict := false
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("GODFS_GC_STRICT"))); v == "1" || v == "true" {
+		gcStrict = true
+	}
+	softDeleteGrace := time.Duration(0)
+	if v := os.Getenv("GODFS_SOFT_DELETE_GRACE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			softDeleteGrace = d
 		}
 	}
 	staleReplicaGaugeTimeout := 2 * time.Minute
@@ -269,6 +286,7 @@ func main() {
 		}
 		rstore := raftmeta.NewService(node.Raft, node.FSM, grpcByRaft)
 		rstore.SetPendingDeleteGrace(gcPendingDeleteGrace)
+		rstore.SetSoftDeleteGrace(softDeleteGrace)
 		store = rstore
 		log.Printf("goDFS master (raft) grpc=%s raft=%s node=%s peers=%d bootstrap=%v", grpcListen, raftListen, nodeID, len(peers), bootstrap)
 
@@ -296,6 +314,7 @@ func main() {
 			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
 			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
 			maintChecksumMaxQPS:        maintChecksumMaxQPS,
+			gcStrict:                   gcStrict,
 		})
 
 		// publish Raft SRE metrics periodically
@@ -331,6 +350,7 @@ func main() {
 		metaStore := metadata.NewStore(chunkSize, replication)
 		metaStore.SetNodeDeadAfter(nodeDeadAfter)
 		metaStore.SetGCPendingDeleteGrace(gcPendingDeleteGrace)
+		metaStore.SetSoftDeleteGrace(softDeleteGrace)
 		store = metaStore
 		log.Printf("goDFS master (single) grpc=%s (chunk size %d bytes, replication %d)", grpcListen, chunkSize, replication)
 		startSingleMasterBackgroundMaintenance(metaStore, maintenanceLoopConfig{
@@ -357,6 +377,7 @@ func main() {
 			staleReplicaGaugeEvery:     staleReplicaGaugeEvery,
 			staleReplicaGaugeTimeout:   staleReplicaGaugeTimeout,
 			maintChecksumMaxQPS:        maintChecksumMaxQPS,
+			gcStrict:                   gcStrict,
 		})
 	}
 

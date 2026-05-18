@@ -48,7 +48,8 @@ Architectural constraints:
 | `GET` | `/v1/fs/list?path=` | Directory listing (JSON). |
 | `POST` | `/v1/fs/mkdir` | Body: `{"path":"..."}`. |
 | `POST` | `/v1/fs/file` | Body: `{"path":"..."}` — empty file. |
-| `DELETE` | `/v1/fs?path=` | Delete. |
+| `DELETE` | `/v1/fs?path=` | Delete (soft-delete when Master has `GODFS_SOFT_DELETE_GRACE`). |
+| `POST` | `/v1/fs/restore` | Body `{"path":"..."}` — restore from trash (admin). |
 | `POST` | `/v1/fs/rename` | Body: `{"old_path":"...","new_path":"..."}`. |
 | `GET` | `/v1/fs/content?path=` | Download content (**streaming** response; `Range`: single range, suffix `bytes=-N`, multiple ranges → `multipart/byteranges`; `ETag`, `If-Range`, `If-None-Match`, `If-Modified-Since`). |
 | `PUT` | `/v1/fs/content?path=` | Upload content (**body** is a byte stream; gateway reads without buffering the whole file in RAM, writes via `WriteFromReader` in chunks). |
