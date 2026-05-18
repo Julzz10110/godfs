@@ -22,7 +22,7 @@ helm template godfs "$CHART" -n godfs \
   echo "# Prometheus rule groups for goDFS (promtool + plain PrometheusRule bundle)."
   echo "# SLO thresholds match Helm defaults (deployments/helm/godfs/values.yaml prometheus.slo.*)."
   echo "# After changing Helm SLO values, run: bash scripts/sync_observability_rules.sh"
-  yq '{groups: .spec.groups}' "$TMP/prometheusrule.yaml"
+  yq -o=yaml '{"groups": .spec.groups}' "$TMP/prometheusrule.yaml"
 } >"$RULES_FILE"
 
 yq -n "

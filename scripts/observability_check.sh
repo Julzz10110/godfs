@@ -14,6 +14,11 @@ need helm
 need yq
 need jq
 
+# mikefarah/yq v4: flow keys must be quoted in object literals.
+yq_groups_for_promtool() {
+  yq -o=yaml '{"groups": .spec.groups}' "$1"
+}
+
 if ! command -v promtool >/dev/null 2>&1; then
   PT_VER="2.55.1"
   curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PT_VER}/prometheus-${PT_VER}.linux-amd64.tar.gz" \
@@ -26,7 +31,7 @@ echo "== promtool: rules/godfs.yaml =="
 promtool check rules "$RULES_FILE"
 
 echo "== promtool: prometheus-rules-godfs.yaml (extracted groups) =="
-yq '{groups: .spec.groups}' "$CRD_FILE" >"$TMP/crd-groups.yaml"
+yq_groups_for_promtool "$CRD_FILE" >"$TMP/crd-groups.yaml"
 promtool check rules "$TMP/crd-groups.yaml"
 
 echo "== helm template (observability) =="
@@ -39,7 +44,7 @@ helm template godfs "$CHART" -n godfs \
   --show-only templates/observability-prometheusrules.yaml \
   >"$TMP/prometheusrule.yaml"
 
-yq '{groups: .spec.groups}' "$TMP/prometheusrule.yaml" >"$TMP/helm-groups.yaml"
+yq_groups_for_promtool "$TMP/prometheusrule.yaml" >"$TMP/helm-groups.yaml"
 promtool check rules "$TMP/helm-groups.yaml"
 
 echo "== Helm rules match committed rules/godfs.yaml =="
