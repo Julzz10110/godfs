@@ -1,10 +1,13 @@
-# PrometheusRule for kubectl apply (namespace godfs).
-# Keep in sync with Helm: bash scripts/sync_observability_rules.sh
+{{- if and .Values.prometheus.operator.enabled .Values.prometheus.rules.enabled }}
+# SLO alert thresholds: values.prometheus.slo.* — tune per cluster.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: godfs-rules
-  namespace: godfs
+  name: {{ .Release.Name }}-godfs-rules
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "godfs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: observability
 spec:
   groups:
     - name: godfs.raft
@@ -45,7 +48,7 @@ spec:
             summary: "goDFS: unrepairable chunks detected"
             description: "Rebalancer could not find any good replica matching master checksum. Manual intervention likely required."
         - alert: GodfsPendingDeletesBacklog
-          expr: max(godfs_data_pending_deletes) > 1000
+          expr: max(godfs_data_pending_deletes) > {{ .Values.prometheus.dataplane.pendingDeletesThreshold }}
           for: 15m
           labels:
             severity: warning
@@ -53,7 +56,7 @@ spec:
             summary: "goDFS: large pending delete backlog"
             description: "Many pending DeleteChunk entries; chunk nodes may be down or DeleteChunk failing. Check godfs_maint_delete_errors_total and chunk health."
         - alert: GodfsRebalanceQueueHigh
-          expr: max(godfs_maint_rebalance_queue_depth) > 200
+          expr: max(godfs_maint_rebalance_queue_depth) > {{ .Values.prometheus.dataplane.rebalanceQueueThreshold }}
           for: 10m
           labels:
             severity: warning
@@ -104,39 +107,40 @@ spec:
     - name: godfs.slo
       rules:
         - alert: GodfsGRPCUnaryP99High
-          expr: godfs:grpc_server_handling_seconds:p99:max > 2
-          for: 10m
+          expr: godfs:grpc_server_handling_seconds:p99:max > {{ .Values.prometheus.slo.grpcUnaryP99MaxSeconds }}
+          for: {{ .Values.prometheus.slo.latencyAlertFor }}
           labels:
             severity: warning
           annotations:
             summary: "goDFS: gRPC unary p99 latency high"
-            description: "Max unary p99 across methods exceeds 2s for 10m. Tune per-method via godfs:grpc_server_handling_seconds:p99 or check chunk/master load."
+            description: "Max unary p99 across methods exceeds {{ .Values.prometheus.slo.grpcUnaryP99MaxSeconds }}s. Tune prometheus.slo.grpcUnaryP99MaxSeconds or check chunk/master load."
         - alert: GodfsGRPCPrepareWriteP99High
           expr: |
-            (godfs:grpc_server_handling_seconds:p99{grpc_method="PrepareWrite"} > 1)
-            or (godfs:grpc_server_handling_seconds:p99{grpc_method="/godfs.v1.MasterService/PrepareWrite"} > 1)
-          for: 10m
+            (godfs:grpc_server_handling_seconds:p99{grpc_method="PrepareWrite"} > {{ .Values.prometheus.slo.prepareWriteP99Seconds }})
+            or (godfs:grpc_server_handling_seconds:p99{grpc_method="/godfs.v1.MasterService/PrepareWrite"} > {{ .Values.prometheus.slo.prepareWriteP99Seconds }})
+          for: {{ .Values.prometheus.slo.latencyAlertFor }}
           labels:
             severity: warning
           annotations:
-            summary: "goDFS: PrepareWrite p99 above 1s"
+            summary: "goDFS: PrepareWrite p99 above {{ .Values.prometheus.slo.prepareWriteP99Seconds }}s"
             description: "Write path latency SLO breach. Check Raft leader, chunk placement, and chunk disk."
         - alert: GodfsRESTLatencyP95High
-          expr: godfs:rest_http_request_duration_seconds:p95:all > 5
-          for: 10m
+          expr: godfs:rest_http_request_duration_seconds:p95:all > {{ .Values.prometheus.slo.restP95Seconds }}
+          for: {{ .Values.prometheus.slo.latencyAlertFor }}
           labels:
             severity: warning
           annotations:
             summary: "goDFS: REST gateway p95 latency high"
-            description: "Aggregate REST p95 exceeds 5s for 10m. Inspect route labels on godfs:rest_http_request_duration_seconds:p95 and upstream Master gRPC."
+            description: "Aggregate REST p95 exceeds {{ .Values.prometheus.slo.restP95Seconds }}s. Inspect per-route godfs:rest_http_request_duration_seconds:p95."
         - alert: GodfsRESTErrorRateHigh
           expr: |
             sum(rate(godfs_rest_http_requests_total{code=~"5.."}[5m]))
             / clamp_min(sum(rate(godfs_rest_http_requests_total[5m])), 0.001)
-            > 0.05
-          for: 5m
+            > {{ .Values.prometheus.slo.rest5xxRate }}
+          for: {{ .Values.prometheus.slo.errorRateAlertFor }}
           labels:
             severity: warning
           annotations:
-            summary: "goDFS: REST 5xx rate above 5%"
-            description: "More than 5% of REST responses are 5xx. Correlate with request_id in logs and traces."
+            summary: "goDFS: REST 5xx rate SLO breach"
+            description: "REST 5xx share exceeds prometheus.slo.rest5xxRate. Correlate with request_id in logs and traces."
+{{- end }}

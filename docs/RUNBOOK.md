@@ -22,6 +22,40 @@
 - Outbound gRPC clients automatically get the `otelgrpc` stats handler when an endpoint is set (distributed traces Master ↔ Chunk).
 - **REST gateway:** `otelhttp` wrapper + the same dial options → one trace context continues to Master over gRPC (check span parentage `godfs.restgateway` → `godfs-master` in Tempo/Jaeger when OTLP is configured).
 - **Child spans on Chunk:** `pkg/client` and Master maintenance loops use the same dial options with `otelgrpc`; with OTLP enabled on **Master, ChunkServer, and REST**, the collector shows outbound `PrepareWrite` / `ReadChunk` / `PullChunk` / `DeleteChunk` as children of the user request or background work (as long as context is not dropped).
+- **Request ID in traces:** Master and Chunk unary/stream handlers set span attribute **`request_id`** from gRPC metadata `x-request-id` (propagated from REST via `OutgoingRPCContext`).
+
+### SLO (latency and errors)
+
+Recording rules and alerts live in **`deployments/observability/prometheus-rules-godfs.yaml`** (groups `godfs.slo.recording`, `godfs.slo`). **Helm:** `prometheus.operator.enabled=true` and tune **`prometheus.slo.*`** in `deployments/helm/godfs/values.yaml`, then `bash scripts/sync_observability_rules.sh`. Import bundle: **`deployments/observability/README.md`**. CI: `bash scripts/observability_check.sh`.
+
+| Recording rule | Meaning |
+|----------------|---------|
+| `godfs:grpc_server_handling_seconds:p95` / `:p99` | Per gRPC method (unary) |
+| `godfs:grpc_unary_latency:p95` / `:p99` | Aliases of the above (plan naming) |
+| `godfs:grpc_server_handling_seconds:p99:max` | Worst-method unary p99 |
+| `godfs:rest_http_request_duration_seconds:p95` | Per REST route/method |
+| `godfs:rest_http_request_duration_seconds:p95:all` | Aggregate REST p95 |
+
+**Starter thresholds** (adjust per environment; lab compose should be well below these):
+
+| Alert | Default expr | Typical action |
+|-------|----------------|----------------|
+| `GodfsGRPCUnaryP99High` | max unary p99 &gt; **2s** for 10m | Scale chunk I/O, check disk, Raft leader, network |
+| `GodfsGRPCPrepareWriteP99High` | PrepareWrite p99 &gt; **1s** for 10m | Placement, chunk load, rebalance backlog |
+| `GodfsRESTLatencyP95High` | REST p95 &gt; **5s** for 10m | Gateway CPU, Master latency, large uploads |
+| `GodfsRESTErrorRateHigh` | 5xx &gt; **5%** for 5m | Auth, leader errors, upstream gRPC; use `request_id` |
+
+REST histogram buckets extend to **30s** (`godfs_rest_http_request_duration_seconds`); gRPC uses `go-grpc-prometheus` defaults after `EnableGRPCPrometheusHistograms()`.
+
+### Distributed tracing checklist
+
+Verify end-to-end context with OTLP on **restgateway**, **master**, and **chunkserver** (`OTEL_EXPORTER_OTLP_ENDPOINT` or `GODFS_OTEL_EXPORTER_OTLP_ENDPOINT`):
+
+1. Issue **`GET /v1/fs/content?path=…`** with header **`X-Request-ID: trace-check-1`** and valid Bearer.
+2. In Tempo/Jaeger, find trace for service **`godfs.restgateway`** (or your `OTEL_SERVICE_NAME` for the gateway).
+3. Confirm child span **`godfs-master`** (PrepareRead / Read path) and downstream **`godfs-chunkserver`** with **`ReadChunk`** (or equivalent) under the same trace ID.
+4. On Master/Chunk spans, confirm attribute **`request_id=trace-check-1`**.
+5. If the chain breaks: check OTLP on all three processes, mTLS not stripping metadata, and that the gateway uses `OutgoingRPCContext` (includes `x-request-id`).
 
 ## Common incidents
 
@@ -114,6 +148,26 @@
 
 - Treat as potential corruption/skew: inspect chunk files on nodes, write paths.
 - In test environments you may recreate data; in production you likely need manual restore from backup/snapshot.
+
+### GodfsGRPCUnaryP99High / GodfsGRPCPrepareWriteP99High
+
+**Meaning:** gRPC unary latency SLO breach (see recording rules `godfs:grpc_server_handling_seconds:p99`).
+
+**What to do:**
+
+- Confirm Raft leader; avoid followers for writes.
+- Check chunk disk latency and `godfs_maint_rebalance_queue_depth`.
+- Drill into per-method series; scale chunk replicas or reduce maintenance QPS if scans compete.
+
+### GodfsRESTLatencyP95High / GodfsRESTErrorRateHigh
+
+**Meaning:** REST gateway slow or returning 5xx.
+
+**What to do:**
+
+- Split by `route` and `code` on `godfs_rest_http_requests_total` and `godfs:rest_http_request_duration_seconds:p95`.
+- Correlate 5xx with Master `not leader` / auth errors in gateway logs (`request_id`).
+- For large uploads, expect higher p95; tune alert thresholds or exclude upload routes in a forked rules file.
 
 ## Metadata recovery (DR)
 

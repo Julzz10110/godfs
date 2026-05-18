@@ -5,9 +5,14 @@ import (
 	"google.golang.org/grpc"
 )
 
+// grpcHistogramBuckets supports p95/p99 SLO recording (up to 30s for large chunk RPCs).
+var grpcHistogramBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}
+
 // EnableGRPCPrometheusHistograms enables latency histograms for gRPC (call once per process).
 func EnableGRPCPrometheusHistograms() {
-	grpc_prometheus.EnableHandlingTimeHistogram()
+	grpc_prometheus.EnableHandlingTimeHistogram(
+		grpc_prometheus.WithHistogramBuckets(grpcHistogramBuckets),
+	)
 }
 
 // GRPCUnaryPrometheusInterceptor records unary RPC metrics.

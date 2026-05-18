@@ -11,6 +11,7 @@ Use this page as a **single index** for running the stack, calling **HTTP/REST**
 | Mount a directory over the namespace (Linux) | [`docs/API_QUICKSTART.md`](API_QUICKSTART.md) — *Quick start (FUSE)*; full contract in [`docs/EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) |
 | Auth, TLS, RBAC, rotation | [`docs/SECURITY_COOKBOOK.md`](SECURITY_COOKBOOK.md); operator security checklist [`docs/OPERATOR_SECURITY.md`](OPERATOR_SECURITY.md) |
 | Metrics, alerts, incidents | [`docs/RUNBOOK.md`](RUNBOOK.md) |
+| Prometheus rules, ServiceMonitors, Grafana dashboard | [`deployments/observability/README.md`](../deployments/observability/README.md) |
 | API paths, env vars, HTTP semantics | [`docs/EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) |
 | Helm install (masters, chunks, REST gateway) | [`docs/API_QUICKSTART.md`](API_QUICKSTART.md) — *Kubernetes deployment (Helm)*; chart `deployments/helm/godfs`; gateway-only — `deployments/helm/godfs-restgateway` |
 | Plain Kubernetes manifests | `deployments/k8s/README.md`, `deployments/k8s/OPERATIONS.md` |

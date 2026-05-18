@@ -167,6 +167,7 @@ func main() {
 	}
 	chunkAudit := security.ChunkAuditEnabledFromEnv()
 	var unary []grpc.UnaryServerInterceptor
+	unary = append(unary, security.GRPCUnaryRequestIDSpanInterceptor())
 	unary = append(unary, observability.GRPCUnaryPrometheusInterceptor())
 	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
 		unary = append(unary, rl)
@@ -175,6 +176,7 @@ func main() {
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(
+			security.GRPCStreamRequestIDSpanInterceptor(),
 			observability.GRPCStreamPrometheusInterceptor(),
 			grpcsvc.NewChunkStreamInterceptor(authHolder, audit, chunkAudit),
 		),

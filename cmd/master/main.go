@@ -417,6 +417,7 @@ func main() {
 		log.Fatalf("audit: %v", err)
 	}
 	var unary []grpc.UnaryServerInterceptor
+	unary = append(unary, security.GRPCUnaryRequestIDSpanInterceptor())
 	unary = append(unary, observability.GRPCUnaryPrometheusInterceptor())
 	if rl := security.GRPCUnaryRateLimitFromEnv(); rl != nil {
 		unary = append(unary, rl)

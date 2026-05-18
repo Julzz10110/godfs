@@ -23,6 +23,28 @@ metrics:
   enabled: true
   listen: "0.0.0.0:9091"
 
+# Prometheus Operator (kube-prometheus-stack): rules, ServiceMonitors, tunable SLO thresholds.
+# Plain manifests: deployments/observability/ (synced from Helm defaults via scripts/sync_observability_rules.sh).
+prometheus:
+  operator:
+    enabled: false
+  rules:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+  dataplane:
+    pendingDeletesThreshold: 1000
+    rebalanceQueueThreshold: 200
+  slo:
+    # Tune per cluster; lab compose should stay well below these.
+    grpcUnaryP99MaxSeconds: 2
+    prepareWriteP99Seconds: 1
+    restP95Seconds: 5
+    rest5xxRate: 0.05
+    latencyAlertFor: 10m
+    errorRateAlertFor: 5m
+
 tls:
   enabled: true
   reload: true

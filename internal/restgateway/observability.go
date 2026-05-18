@@ -35,7 +35,8 @@ func ensureHTTPMetricsRegistered() {
 				Subsystem: "rest",
 				Name:      "http_request_duration_seconds",
 				Help:      "HTTP request duration in seconds for the REST gateway.",
-				Buckets:   prometheus.DefBuckets,
+				// Extended buckets for p95/p99 SLO (up to 30s for large REST uploads).
+				Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 			},
 			[]string{"method", "route"},
 		)

@@ -77,5 +77,5 @@ Production checklist:
 - Cluster auth: `GODFS_CLUSTER_KEY` (and user keys / RBAC) from `Secret`.
 - Raft: use `StatefulSet` for masters and PVC for `GODFS_MASTER_RAFT_DIR` (see `master-raft-*.yaml`).
 - REST gateway (`godfs-restgateway`): HTTP on port **8080**, scrape **`godfs-restgateway:9091/metrics`** when `GODFS_METRICS_LISTEN` is set. Expose HTTP via `Ingress` or `LoadBalancer` and terminate TLS at the edge; clients send **`Authorization: Bearer …`** (see `docs/EXTERNAL_ACCESS.md`).
-- Prometheus `ServiceMonitor` can scrape `godfs-master:9091/metrics`, `godfs-chunk:9091/metrics`, and the REST gateway metrics port when enabled.
+- Prometheus Operator: apply **`deployments/observability/servicemonitors-godfs.yaml`** and **`prometheus-rules-godfs.yaml`** (see **`deployments/observability/README.md`**).
 - Tracing: set `OTEL_EXPORTER_OTLP_ENDPOINT` (gRPC, default port 4317) on pods.
