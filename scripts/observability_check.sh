@@ -55,7 +55,8 @@ promtool check rules "$TMP/crd-groups.yaml"
 echo "== helm template (observability) =="
 helm template godfs "$CHART" -n godfs \
   --set prometheus.operator.enabled=true \
-  >"$TMP/all.yaml"
+  --show-only templates/observability-servicemonitors.yaml \
+  >"$TMP/servicemonitors.yaml"
 
 helm template godfs "$CHART" -n godfs \
   --set prometheus.operator.enabled=true \
@@ -75,7 +76,7 @@ rule_groups_json spec "$CRD_FILE" | jq -S . >"$TMP/crd.json"
 diff -u "$TMP/rules.json" "$TMP/crd.json"
 
 echo "== ServiceMonitor manifests present in helm render =="
-grep -q 'kind: ServiceMonitor' "$TMP/all.yaml"
+grep -q 'kind: ServiceMonitor' "$TMP/servicemonitors.yaml"
 
 echo "== Grafana dashboard panels =="
 for title in "Raft leaders" "Under-replicated chunks" "Rebalance queue depth" "REST requests / s" "Latency (REST p95, gRPC p99 max)"; do

@@ -60,15 +60,7 @@ spec:
             - name: GODFS_MASTER_BOOTSTRAP
               value: {{ ternary "1" "0" .Values.raft.bootstrap | quote }}
             - name: GODFS_MASTER_PEERS
-              value: >-
-                {{- $ns := .Values.namespace -}}
-                {{- $rel := .Release.Name -}}
-                {{- $raftPort := .Values.master.raftPort -}}
-                {{- $grpcPort := .Values.master.grpcPort -}}
-                {{- range $i, $e := until (.Values.raft.replicas | int) -}}
-                {{- if $i }},{{ end -}}
-                {{ $rel }}-master-{{ $i }}@{{ $rel }}-master-{{ $i }}.{{ $rel }}-master-hs.{{ $ns }}.svc.cluster.local:{{ $raftPort }}@{{ $rel }}-master-{{ $i }}.{{ $rel }}-master-hs.{{ $ns }}.svc.cluster.local:{{ $grpcPort }}
-                {{- end -}}
+              value: {{ include "godfs.masterRaftPeers" . | quote }}
             - name: GODFS_METRICS_LISTEN
               value: {{ .Values.metrics.listen | quote }}
             {{- if .Values.tls.enabled }}
