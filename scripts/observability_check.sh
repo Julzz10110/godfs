@@ -14,9 +14,16 @@ need helm
 need yq
 need jq
 
-# mikefarah/yq v4: flow keys must be quoted in object literals.
-yq_groups_for_promtool() {
-  yq -o=yaml '{"groups": .spec.groups}' "$1"
+# Require mikefarah/yq (CI installs it). Python/kislyuk yq uses different syntax and breaks this script.
+if ! yq --version 2>&1 | grep -qiE 'mikefarah|https://github.com/mikefarah/yq'; then
+  echo "observability_check: need mikefarah/yq v4, got: $(yq --version 2>&1 || true)" >&2
+  exit 1
+fi
+
+# Build promtool-compatible rules YAML from a PrometheusRule manifest (no yq object-literal expressions).
+write_promtool_rules_from_prometheusrule() {
+  local in="$1" out="$2"
+  yq -o=json '.spec.groups' "$in" | jq '{groups: .}' | yq -P -o=yaml '.' >"$out"
 }
 
 if ! command -v promtool >/dev/null 2>&1; then
@@ -31,7 +38,7 @@ echo "== promtool: rules/godfs.yaml =="
 promtool check rules "$RULES_FILE"
 
 echo "== promtool: prometheus-rules-godfs.yaml (extracted groups) =="
-yq_groups_for_promtool "$CRD_FILE" >"$TMP/crd-groups.yaml"
+write_promtool_rules_from_prometheusrule "$CRD_FILE" "$TMP/crd-groups.yaml"
 promtool check rules "$TMP/crd-groups.yaml"
 
 echo "== helm template (observability) =="
@@ -44,12 +51,12 @@ helm template godfs "$CHART" -n godfs \
   --show-only templates/observability-prometheusrules.yaml \
   >"$TMP/prometheusrule.yaml"
 
-yq_groups_for_promtool "$TMP/prometheusrule.yaml" >"$TMP/helm-groups.yaml"
+write_promtool_rules_from_prometheusrule "$TMP/prometheusrule.yaml" "$TMP/helm-groups.yaml"
 promtool check rules "$TMP/helm-groups.yaml"
 
 echo "== Helm rules match committed rules/godfs.yaml =="
 yq -o=json '.groups' "$RULES_FILE" >"$TMP/rules.json"
-yq -o=json '.groups' "$TMP/helm-groups.yaml" >"$TMP/helm.json"
+yq -o=json '.spec.groups' "$TMP/prometheusrule.yaml" >"$TMP/helm.json"
 diff -u "$TMP/rules.json" "$TMP/helm.json"
 
 echo "== CRD spec.groups match rules/godfs.yaml =="

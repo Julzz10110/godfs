@@ -12,6 +12,12 @@ trap 'rm -rf "$TMP"' EXIT
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing $1" >&2; exit 1; }; }
 need helm
 need yq
+need jq
+
+if ! yq --version 2>&1 | grep -qiE 'mikefarah|https://github.com/mikefarah/yq'; then
+  echo "sync_observability_rules: need mikefarah/yq v4, got: $(yq --version 2>&1 || true)" >&2
+  exit 1
+fi
 
 helm template godfs "$CHART" -n godfs \
   --set prometheus.operator.enabled=true \
@@ -22,7 +28,7 @@ helm template godfs "$CHART" -n godfs \
   echo "# Prometheus rule groups for goDFS (promtool + plain PrometheusRule bundle)."
   echo "# SLO thresholds match Helm defaults (deployments/helm/godfs/values.yaml prometheus.slo.*)."
   echo "# After changing Helm SLO values, run: bash scripts/sync_observability_rules.sh"
-  yq -o=yaml '{"groups": .spec.groups}' "$TMP/prometheusrule.yaml"
+  yq -o=json '.spec.groups' "$TMP/prometheusrule.yaml" | jq '{groups: .}' | yq -P -o=yaml '.'
 } >"$RULES_FILE"
 
 yq -n "

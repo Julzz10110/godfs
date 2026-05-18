@@ -17,6 +17,9 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
+          # Ensure mikefarah yq wins over any preinstalled kislyuk/python yq on PATH.
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+          yq --version
 
       - name: observability gate (promtool, helm template, rules sync)
         run: bash scripts/observability_check.sh
