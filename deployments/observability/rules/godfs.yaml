@@ -105,7 +105,7 @@ groups:
           severity: warning
         annotations:
           summary: "goDFS: gRPC unary p99 latency high"
-          description: "Max unary p99 across methods exceeds 2s for 10m. Tune per-method via godfs:grpc_server_handling_seconds:p99 or check chunk/master load."
+          description: "Max unary p99 across methods exceeds 2s. Tune prometheus.slo.grpcUnaryP99MaxSeconds or check chunk/master load."
       - alert: GodfsGRPCPrepareWriteP99High
         expr: |
           (godfs:grpc_server_handling_seconds:p99{grpc_method="PrepareWrite"} > 1)
@@ -123,7 +123,7 @@ groups:
           severity: warning
         annotations:
           summary: "goDFS: REST gateway p95 latency high"
-          description: "Aggregate REST p95 exceeds 5s for 10m. Inspect route labels on godfs:rest_http_request_duration_seconds:p95 and upstream Master gRPC."
+          description: "Aggregate REST p95 exceeds 5s. Inspect per-route godfs:rest_http_request_duration_seconds:p95."
       - alert: GodfsRESTErrorRateHigh
         expr: |
           sum(rate(godfs_rest_http_requests_total{code=~"5.."}[5m]))
@@ -133,5 +133,5 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "goDFS: REST 5xx rate above 5%"
-          description: "More than 5% of REST responses are 5xx. Correlate with request_id in logs and traces."
+          summary: "goDFS: REST 5xx rate SLO breach"
+          description: "REST 5xx share exceeds prometheus.slo.rest5xxRate. Correlate with request_id in logs and traces."
