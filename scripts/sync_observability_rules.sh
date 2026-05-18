@@ -3,21 +3,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART="$ROOT/deployments/helm/godfs"
-RULES_DIR="$ROOT/deployments/observability/rules"
-RULES_FILE="$RULES_DIR/godfs.yaml"
+RULES_FILE="$ROOT/deployments/observability/rules/godfs.yaml"
 CRD_FILE="$ROOT/deployments/observability/prometheus-rules-godfs.yaml"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing $1" >&2; exit 1; }; }
 need helm
-need yq
-need jq
-
-if ! yq --version 2>&1 | grep -qiE 'mikefarah|https://github.com/mikefarah/yq'; then
-  echo "sync_observability_rules: need mikefarah/yq v4, got: $(yq --version 2>&1 || true)" >&2
-  exit 1
-fi
+need ruby
 
 helm template godfs "$CHART" -n godfs \
   --set prometheus.operator.enabled=true \
@@ -28,15 +21,23 @@ helm template godfs "$CHART" -n godfs \
   echo "# Prometheus rule groups for goDFS (promtool + plain PrometheusRule bundle)."
   echo "# SLO thresholds match Helm defaults (deployments/helm/godfs/values.yaml prometheus.slo.*)."
   echo "# After changing Helm SLO values, run: bash scripts/sync_observability_rules.sh"
-  yq -o=json '.spec.groups' "$TMP/prometheusrule.yaml" | jq '{groups: .}' | yq -P -o=yaml '.'
+  echo "groups:"
+  ruby -ryaml -rjson -e '
+    doc = YAML.safe_load(File.read(ARGV[0]))
+    groups = doc.fetch("spec").fetch("groups")
+    puts YAML.dump(groups).sub(/\A---\n/, "")
+  ' "$TMP/prometheusrule.yaml" | sed 's/^/  /'
 } >"$RULES_FILE"
 
-yq -n "
-  .apiVersion = \"monitoring.coreos.com/v1\" |
-  .kind = \"PrometheusRule\" |
-  .metadata.name = \"godfs-rules\" |
-  .metadata.namespace = \"godfs\" |
-  .spec.groups = load(\"$RULES_FILE\").groups
-" >"$CRD_FILE"
+ruby -ryaml -e '
+  rules = YAML.safe_load(File.read(ARGV[0]))
+  crd = {
+    "apiVersion" => "monitoring.coreos.com/v1",
+    "kind" => "PrometheusRule",
+    "metadata" => { "name" => "godfs-rules", "namespace" => "godfs" },
+    "spec" => { "groups" => rules.fetch("groups") }
+  }
+  File.write(ARGV[1], YAML.dump(crd))
+' "$RULES_FILE" "$CRD_FILE"
 
 echo "synced $RULES_FILE and $CRD_FILE from Helm chart"

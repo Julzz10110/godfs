@@ -11,19 +11,30 @@ trap 'rm -rf "$TMP"' EXIT
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing $1" >&2; exit 1; }; }
 need helm
-need yq
 need jq
+need ruby
 
-# Require mikefarah/yq (CI installs it). Python/kislyuk yq uses different syntax and breaks this script.
-if ! yq --version 2>&1 | grep -qiE 'mikefarah|https://github.com/mikefarah/yq'; then
-  echo "observability_check: need mikefarah/yq v4, got: $(yq --version 2>&1 || true)" >&2
-  exit 1
-fi
+# JSON array of rule groups from rules/godfs.yaml (top-level "groups") or PrometheusRule ("spec.groups").
+rule_groups_json() {
+  local mode="$1" file="$2"
+  ruby -ryaml -rjson -e '
+    mode, path = ARGV[0], ARGV[1]
+    doc = YAML.safe_load(File.read(path))
+    groups = (mode == "spec") ? doc.fetch("spec").fetch("groups") : doc.fetch("groups")
+    puts JSON.generate(groups)
+  ' "$mode" "$file"
+}
 
-# Build promtool-compatible rules YAML from a PrometheusRule manifest (no yq object-literal expressions).
+# promtool rules file with top-level "groups:" (from PrometheusRule manifest).
 write_promtool_rules_from_prometheusrule() {
   local in="$1" out="$2"
-  yq -o=json '.spec.groups' "$in" | jq '{groups: .}' | yq -P -o=yaml '.' >"$out"
+  {
+    echo "groups:"
+    rule_groups_json spec "$in" | ruby -rjson -ryaml -e '
+      groups = JSON.parse(STDIN.read)
+      puts YAML.dump(groups).sub(/\A---\n/, "")
+    ' | sed 's/^/  /'
+  } >"$out"
 }
 
 if ! command -v promtool >/dev/null 2>&1; then
@@ -55,12 +66,12 @@ write_promtool_rules_from_prometheusrule "$TMP/prometheusrule.yaml" "$TMP/helm-g
 promtool check rules "$TMP/helm-groups.yaml"
 
 echo "== Helm rules match committed rules/godfs.yaml =="
-yq -o=json '.groups' "$RULES_FILE" >"$TMP/rules.json"
-yq -o=json '.spec.groups' "$TMP/prometheusrule.yaml" >"$TMP/helm.json"
+rule_groups_json groups "$RULES_FILE" | jq -S . >"$TMP/rules.json"
+rule_groups_json spec "$TMP/prometheusrule.yaml" | jq -S . >"$TMP/helm.json"
 diff -u "$TMP/rules.json" "$TMP/helm.json"
 
 echo "== CRD spec.groups match rules/godfs.yaml =="
-yq -o=json '.spec.groups' "$CRD_FILE" >"$TMP/crd.json"
+rule_groups_json spec "$CRD_FILE" | jq -S . >"$TMP/crd.json"
 diff -u "$TMP/rules.json" "$TMP/crd.json"
 
 echo "== ServiceMonitor manifests present in helm render =="

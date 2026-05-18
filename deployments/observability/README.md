@@ -43,7 +43,7 @@ Import the dashboard: **Dashboards → Import → Upload JSON** (`dashboards/god
 bash scripts/observability_check.sh
 ```
 
-Includes: `promtool check rules`, `helm template` with `prometheus.operator.enabled=true`, diff Helm vs committed rules, Grafana panel check.
+Includes: `promtool check rules`, `helm template` with `prometheus.operator.enabled=true`, diff Helm vs committed rules (Ruby YAML parse), Grafana panel check. Requires: `helm`, `ruby`, `jq`, `promtool` (downloaded by the script if missing).
 
 ## SLO defaults (lab / starter)
 
