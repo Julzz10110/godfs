@@ -13,7 +13,8 @@ services:
     environment:
       GODFS_MASTER_NODE_ID: master-0
       GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
-      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      # Raft listen must match the address in GODFS_MASTER_PEERS (same as e2e).
+      GODFS_MASTER_RAFT_LISTEN: "master-0:9200"
       GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
       GODFS_MASTER_BOOTSTRAP: "1"
       # Bootstrap single-node cluster; master-1/2 join via scripts/raft_compose_bootstrap.sh (AddMaster).
@@ -41,7 +42,7 @@ services:
     environment:
       GODFS_MASTER_NODE_ID: master-1
       GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
-      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      GODFS_MASTER_RAFT_LISTEN: "master-1:9200"
       GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
       GODFS_MASTER_BOOTSTRAP: "0"
       GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
@@ -68,7 +69,7 @@ services:
     environment:
       GODFS_MASTER_NODE_ID: master-2
       GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
-      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      GODFS_MASTER_RAFT_LISTEN: "master-2:9200"
       GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
       GODFS_MASTER_BOOTSTRAP: "0"
       GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
@@ -101,12 +102,9 @@ services:
     volumes:
       - chunkdata:/var/lib/godfs
     depends_on:
-      master-0:
-        condition: service_healthy
-      master-1:
-        condition: service_started
-      master-2:
-        condition: service_started
+      - master-0
+      - master-1
+      - master-2
 
   rest:
     build:

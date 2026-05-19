@@ -103,8 +103,23 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build and start Raft stack
-        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+      - name: Build and start Raft masters
+        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d --build master-0 master-1 master-2
+
+      - name: Verify Raft masters are running
+        run: |
+          set -euo pipefail
+          docker compose -f deployments/docker/docker-compose.raft.yml ps -a
+          for s in master-0 master-1 master-2; do
+            if ! docker compose -f deployments/docker/docker-compose.raft.yml ps --status running -q "$s" | grep -q .; then
+              echo "service $s not running; logs:" >&2
+              docker compose -f deployments/docker/docker-compose.raft.yml logs --no-color --tail=120 "$s" >&2 || true
+              exit 1
+            fi
+          done
+
+      - name: Start chunk and REST after masters are up
+        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
 
       - name: Bootstrap Raft cluster (single-node then join)
         run: bash scripts/raft_compose_bootstrap.sh
@@ -117,7 +132,8 @@ jobs:
       - name: Restart stack after quorum test
         run: |
           docker compose -f deployments/docker/docker-compose.raft.yml down -v
-          docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+          docker compose -f deployments/docker/docker-compose.raft.yml up -d --build master-0 master-1 master-2
+          docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
           bash scripts/raft_compose_bootstrap.sh
 
       - name: Raft leader kill chaos

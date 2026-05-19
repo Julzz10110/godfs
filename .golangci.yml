@@ -5,12 +5,15 @@ run:
   timeout: 8m
   tests: true
 
+formatters:
+  enable:
+    - gofumpt
+
 linters:
   default: none
   enable:
     - copyloopvar
     - errcheck
-    - gofumpt
     - govet
     - ineffassign
     - misspell

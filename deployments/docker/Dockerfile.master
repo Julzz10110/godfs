@@ -8,5 +8,7 @@ RUN CGO_ENABLED=0 go build -o /out/godfs-master ./cmd/master
 FROM alpine:3.20
 RUN apk add --no-cache wget
 COPY --from=build /out/godfs-master /usr/local/bin/
+COPY deployments/docker/master-entrypoint.sh /usr/local/bin/master-entrypoint.sh
+RUN chmod +x /usr/local/bin/master-entrypoint.sh
 EXPOSE 9090
-ENTRYPOINT ["/usr/local/bin/godfs-master"]
+ENTRYPOINT ["/usr/local/bin/master-entrypoint.sh"]
