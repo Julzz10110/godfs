@@ -95,7 +95,8 @@ services:
       - "9092:9091"
     environment:
       GODFS_MASTER: "master-0:9090"
-      GODFS_ADVERTISE_ADDR: "chunk:8000"
+      # Host-run godfs-client (CI chaos/smoke) uses published port 8000; in-network callers use host mapping.
+      GODFS_ADVERTISE_ADDR: "127.0.0.1:8000"
       GODFS_CHUNK_LISTEN: "0.0.0.0:8000"
       GODFS_CHUNK_DATA: "/var/lib/godfs/data"
       GODFS_METRICS_LISTEN: "0.0.0.0:9091"
