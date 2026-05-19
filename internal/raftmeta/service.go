@@ -19,6 +19,8 @@ type Service struct {
 	raft *raft.Raft
 	fsm  *FSM
 
+	localNodeID domain.NodeID
+
 	leaderGrpcByRaftAddr map[string]string // raftAddr -> grpcAddr (best-effort redirect)
 	leaderMapMu          sync.RWMutex
 
@@ -29,10 +31,11 @@ type Service struct {
 	pendingDeleteGraceNs atomic.Int64
 }
 
-func NewService(r *raft.Raft, fsm *FSM, leaderGrpcByRaftAddr map[string]string) *Service {
+func NewService(r *raft.Raft, fsm *FSM, leaderGrpcByRaftAddr map[string]string, localNodeID domain.NodeID) *Service {
 	return &Service{
 		raft:                 r,
 		fsm:                  fsm,
+		localNodeID:          localNodeID,
 		leaderGrpcByRaftAddr: leaderGrpcByRaftAddr,
 	}
 }
@@ -60,13 +63,27 @@ func (s *Service) IsLeader() bool {
 }
 
 func (s *Service) LeaderGRPCAddr() string {
-	ldr := string(s.raft.Leader())
-	if ldr == "" {
-		return ""
-	}
 	s.leaderMapMu.RLock()
 	defer s.leaderMapMu.RUnlock()
 	if s.leaderGrpcByRaftAddr == nil {
+		return ""
+	}
+	if s.raft.State() == raft.Leader && s.localNodeID != "" {
+		f := s.raft.GetConfiguration()
+		if err := f.Error(); err != nil {
+			return ""
+		}
+		for _, srv := range f.Configuration().Servers {
+			if srv.ID == raft.ServerID(s.localNodeID) {
+				if v, ok := s.leaderGrpcByRaftAddr[string(srv.Address)]; ok {
+					return v
+				}
+				break
+			}
+		}
+	}
+	ldr := string(s.raft.Leader())
+	if ldr == "" {
 		return ""
 	}
 	if v, ok := s.leaderGrpcByRaftAddr[ldr]; ok {
@@ -440,8 +457,16 @@ func (s *Service) ListMasters(ctx context.Context) ([]domain.MasterPeer, domain.
 		}
 	}
 	cfg := f.Configuration()
-	leaderAddr := string(s.raft.Leader())
-	var leaderID domain.NodeID
+	leaderID := s.localNodeID
+	if leaderID == "" {
+		leaderAddr := string(s.raft.Leader())
+		for _, srv := range cfg.Servers {
+			if leaderAddr != "" && string(srv.Address) == leaderAddr {
+				leaderID = domain.NodeID(string(srv.ID))
+				break
+			}
+		}
+	}
 	peers := make([]domain.MasterPeer, 0, len(cfg.Servers))
 	for _, srv := range cfg.Servers {
 		raftAddr := string(srv.Address)
@@ -452,9 +477,6 @@ func (s *Service) ListMasters(ctx context.Context) ([]domain.MasterPeer, domain.
 			grpcAddr = s.leaderGrpcByRaftAddr[raftAddr]
 		}
 		s.leaderMapMu.RUnlock()
-		if raftAddr == leaderAddr {
-			leaderID = domain.NodeID(string(srv.ID))
-		}
 		peers = append(peers, domain.MasterPeer{
 			NodeID:      domain.NodeID(string(srv.ID)),
 			RaftAddress: raftAddr,

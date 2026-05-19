@@ -14,6 +14,7 @@ import (
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/domain"
 	"godfs/internal/raftmeta"
 	"godfs/pkg/client"
 )
@@ -41,7 +42,7 @@ func TestE2E_Rebalancer_MarksUnrepairableWhenNoGoodReplica(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := raftmeta.NewService(node.Raft, node.FSM, map[string]string{raftAddr: "127.0.0.1:0"})
+	store := raftmeta.NewService(node.Raft, node.FSM, map[string]string{raftAddr: "127.0.0.1:0"}, domain.NodeID("m0"))
 
 	mLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

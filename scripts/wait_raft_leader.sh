@@ -11,6 +11,16 @@ TIMEOUT_SEC="${GODFS_RAFT_LEADER_WAIT_TIMEOUT:-180}"
 MASTER_GRPC="${GODFS_RAFT_BOOTSTRAP_MASTER:-127.0.0.1:9090}"
 declare -a METRICS_PORTS=(9091 9094 9096)
 
+godfs_client() {
+  if [[ -n "${GODFS_CLIENT_BIN:-}" && -x "${GODFS_CLIENT_BIN}" ]]; then
+    "${GODFS_CLIENT_BIN}" "$@"
+  elif [[ -x "${ROOT}/bin/godfs-client" ]]; then
+    "${ROOT}/bin/godfs-client" "$@"
+  else
+    go run ./cmd/client "$@"
+  fi
+}
+
 # curl | grep -q (not echo | grep) — with pipefail, echo closes early and yields SIGPIPE / false failure.
 metrics_is_leader() {
   local port="$1"
@@ -20,7 +30,7 @@ metrics_is_leader() {
 
 grpc_has_leader() {
   local out leader
-  out=$(go run ./cmd/client --master "$MASTER_GRPC" masters list 2>/dev/null) || return 1
+  out=$(godfs_client --master "$MASTER_GRPC" masters list 2>/dev/null) || return 1
   leader=$(grep -m1 '^leader_node_id=' <<<"$out" | cut -d= -f2- | tr -d '\r\n')
   [[ -n "$leader" ]]
 }

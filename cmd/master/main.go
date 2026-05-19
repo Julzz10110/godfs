@@ -16,6 +16,7 @@ import (
 	grpcsvc "godfs/internal/adapter/grpc"
 	"godfs/internal/adapter/repository/metadata"
 	"godfs/internal/config"
+	"godfs/internal/domain"
 	"godfs/internal/observability"
 	"godfs/internal/raftmeta"
 	"godfs/internal/security"
@@ -284,7 +285,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("start raft: %v", err)
 		}
-		rstore := raftmeta.NewService(node.Raft, node.FSM, grpcByRaft)
+		rstore := raftmeta.NewService(node.Raft, node.FSM, grpcByRaft, domain.NodeID(nodeID))
 		rstore.SetPendingDeleteGrace(gcPendingDeleteGrace)
 		rstore.SetSoftDeleteGrace(softDeleteGrace)
 		store = rstore

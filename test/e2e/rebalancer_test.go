@@ -14,6 +14,7 @@ import (
 	godfsv1 "godfs/api/proto/godfs/v1"
 	grpcsvc "godfs/internal/adapter/grpc"
 	chstor "godfs/internal/adapter/repository/chunk"
+	"godfs/internal/domain"
 	"godfs/internal/raftmeta"
 	"godfs/pkg/client"
 )
@@ -33,7 +34,7 @@ func startSingleRaftMaster(t *testing.T, grpcAddr, raftAddr, raftDir string, chu
 	if err != nil {
 		t.Fatalf("start raft: %v", err)
 	}
-	store = raftmeta.NewService(node.Raft, node.FSM, map[string]string{raftAddr: grpcAddr})
+	store = raftmeta.NewService(node.Raft, node.FSM, map[string]string{raftAddr: grpcAddr}, domain.NodeID("m0"))
 
 	ln, err := net.Listen("tcp", grpcAddr)
 	if err != nil {

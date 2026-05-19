@@ -7,6 +7,7 @@ cd "$ROOT"
 
 MASTER0_GRPC="${GODFS_RAFT_BOOTSTRAP_MASTER:-127.0.0.1:9090}"
 TIMEOUT_SEC="${GODFS_RAFT_BOOTSTRAP_TIMEOUT:-120}"
+export GODFS_CLIENT_BIN="${GODFS_CLIENT_BIN:-${ROOT}/bin/godfs-client}"
 
 echo "Waiting for Raft leader on master-0 (${MASTER0_GRPC}) ..."
 GODFS_RAFT_BOOTSTRAP_MASTER="$MASTER0_GRPC" \
@@ -16,7 +17,11 @@ GODFS_RAFT_BOOTSTRAP_MASTER="$MASTER0_GRPC" \
 join_master() {
   local id="$1" raft="$2" grpc="$3"
   echo "Adding master ${id} (${raft} / ${grpc})"
-  go run ./cmd/client --master "$MASTER0_GRPC" masters add "$id" "$raft" "$grpc"
+  if [[ -x "$GODFS_CLIENT_BIN" ]]; then
+    "$GODFS_CLIENT_BIN" --master "$MASTER0_GRPC" masters add "$id" "$raft" "$grpc"
+  else
+    go run ./cmd/client --master "$MASTER0_GRPC" masters add "$id" "$raft" "$grpc"
+  fi
 }
 
 join_master master-1 master-1:9200 master-1:9090
