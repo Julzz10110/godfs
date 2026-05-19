@@ -4,49 +4,27 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=raft_compose_lib.sh
+source "${ROOT}/scripts/raft_compose_lib.sh"
 
 COMPOSE_FILE="${GODFS_RAFT_COMPOSE_FILE:-deployments/docker/docker-compose.raft.yml}"
 COMPOSE=(docker compose -f "$COMPOSE_FILE")
 TIMEOUT_SEC="${GODFS_RAFT_LEADER_WAIT_TIMEOUT:-180}"
-MASTER_GRPC="${GODFS_RAFT_BOOTSTRAP_MASTER:-127.0.0.1:9090}"
+export GODFS_CLIENT_BIN="${GODFS_CLIENT_BIN:-${ROOT}/bin/godfs-client}"
+
 declare -a METRICS_PORTS=(9091 9094 9096)
-
-godfs_client() {
-  if [[ -n "${GODFS_CLIENT_BIN:-}" && -x "${GODFS_CLIENT_BIN}" ]]; then
-    "${GODFS_CLIENT_BIN}" "$@"
-  elif [[ -x "${ROOT}/bin/godfs-client" ]]; then
-    "${ROOT}/bin/godfs-client" "$@"
-  else
-    go run ./cmd/client "$@"
-  fi
-}
-
-# curl | grep -q (not echo | grep) — with pipefail, echo closes early and yields SIGPIPE / false failure.
-metrics_is_leader() {
-  local port="$1"
-  curl -sf "http://127.0.0.1:${port}/metrics" 2>/dev/null \
-    | grep -qE '^godfs_raft_is_leader (1|1\.0*)( |$)'
-}
+declare -a GRPC_PORTS=(9090 9093 9095)
 
 grpc_has_leader() {
-  local out leader
-  out=$(godfs_client --master "$MASTER_GRPC" masters list 2>/dev/null) || return 1
-  leader=$(grep -m1 '^leader_node_id=' <<<"$out" | cut -d= -f2- | tr -d '\r\n')
-  [[ -n "$leader" ]]
+  raft_find_leader_index >/dev/null
 }
 
 deadline=$((SECONDS + TIMEOUT_SEC))
 while ((SECONDS < deadline)); do
-  if grpc_has_leader; then
-    echo "Raft leader via gRPC (${MASTER_GRPC})"
+  if idx="$(raft_find_leader_index 2>/dev/null)"; then
+    echo "Raft leader on master index ${idx} (gRPC 127.0.0.1:${GRPC_PORTS[$idx]})"
     exit 0
   fi
-  for p in "${METRICS_PORTS[@]}"; do
-    if metrics_is_leader "$p"; then
-      echo "Raft leader metrics on :${p}"
-      exit 0
-    fi
-  done
   sleep 2
 done
 
