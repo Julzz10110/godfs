@@ -9,8 +9,8 @@ import (
 var (
 	raftOnce sync.Once
 
-	raftIsLeader prometheus.Gauge
-	raftClusterVoters prometheus.Gauge
+	raftIsLeader       prometheus.Gauge
+	raftClusterVoters  prometheus.Gauge
 	raftClusterServers prometheus.Gauge
 
 	chunkNodesAlive prometheus.Gauge
@@ -46,7 +46,7 @@ func InitRaftSREMetrics() {
 }
 
 type RaftSREStats struct {
-	IsLeader      bool
+	IsLeader       bool
 	ClusterServers int
 	ClusterVoters  int
 }
@@ -80,4 +80,3 @@ func SetChunkNodesSREStats(st ChunkNodesSREStats) {
 	chunkNodesAlive.Set(float64(st.Alive))
 	chunkNodesDead.Set(float64(st.Dead))
 }
-

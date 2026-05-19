@@ -51,7 +51,10 @@ func backupCmd(args []string) {
 	outRoot := fs.String("out", "", "Output backup directory")
 	concurrency := fs.Int("concurrency", max(1, runtime.GOMAXPROCS(0)), "Concurrent file copy workers")
 	verify := fs.Bool("verify", true, "Verify SHA-256 after copy")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "flags: %v\n", err)
+		os.Exit(2)
+	}
 
 	if strings.TrimSpace(*outRoot) == "" {
 		fmt.Fprintln(os.Stderr, "--out is required")
@@ -71,7 +74,10 @@ func restoreCmd(args []string) {
 	concurrency := fs.Int("concurrency", max(1, runtime.GOMAXPROCS(0)), "Concurrent restore workers")
 	overwrite := fs.Bool("overwrite", false, "Overwrite existing chunk files in data-dir")
 	verify := fs.Bool("verify", true, "Verify SHA-256 after restore")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "flags: %v\n", err)
+		os.Exit(2)
+	}
 
 	if strings.TrimSpace(*inRoot) == "" {
 		fmt.Fprintln(os.Stderr, "--in is required")

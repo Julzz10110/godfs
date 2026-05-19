@@ -319,19 +319,17 @@ func main() {
 
 		// publish Raft SRE metrics periodically
 		go func() {
-			t := time.NewTicker(2 * time.Second)
-			defer t.Stop()
-			for range t.C {
+			publishRaftSRE := func() {
 				if !rstore.IsLeader() {
 					observability.SetRaftSREStats(observability.RaftSREStats{IsLeader: false})
-					continue
+					return
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				peers, _, err := rstore.ListMasters(ctx)
 				cancel()
 				if err != nil {
 					observability.SetRaftSREStats(observability.RaftSREStats{IsLeader: true})
-					continue
+					return
 				}
 				voters := 0
 				for _, p := range peers {
@@ -344,6 +342,12 @@ func main() {
 					ClusterServers: len(peers),
 					ClusterVoters:  voters,
 				})
+			}
+			publishRaftSRE()
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for range t.C {
+				publishRaftSRE()
 			}
 		}()
 	} else {

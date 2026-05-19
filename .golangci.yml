@@ -22,6 +22,11 @@ linters:
   settings:
     errcheck:
       check-type-assertions: false
+      # Defer Close() is intentional fire-and-forget on shutdown paths.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (io.ReadCloser).Close
   exclusions:
     rules:
       - path: '^api/proto/'

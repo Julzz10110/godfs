@@ -42,7 +42,7 @@ var (
 	maintChecksumRPCTotal        *prometheus.CounterVec
 	maintReplicaMetaCompareTotal *prometheus.CounterVec
 
-	dpGCStrictStuck      prometheus.Gauge
+	dpGCStrictStuck        prometheus.Gauge
 	maintGCStrictHoldTotal prometheus.Counter
 )
 

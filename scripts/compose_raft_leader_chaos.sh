@@ -18,7 +18,7 @@ declare -a SERVICES=(master-0 master-1 master-2)
 
 metrics_is_leader() {
   local port="$1"
-  curl -sf "http://127.0.0.1:${port}/metrics" 2>/dev/null | grep -qE '^godfs_raft_is_leader\s+1'
+  curl -sf "http://127.0.0.1:${port}/metrics" 2>/dev/null | grep -qE '^godfs_raft_is_leader (1|1\.0+)( |$)'
 }
 
 find_leader_index() {

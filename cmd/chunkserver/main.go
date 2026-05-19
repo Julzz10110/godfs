@@ -173,7 +173,8 @@ func main() {
 		unary = append(unary, rl)
 	}
 	unary = append(unary, grpcsvc.NewChunkUnaryInterceptor(authHolder, audit, chunkAudit))
-	serverOpts = append(serverOpts,
+	serverOpts = append(
+		serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(
 			security.GRPCStreamRequestIDSpanInterceptor(),
