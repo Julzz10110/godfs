@@ -84,7 +84,7 @@ func TestE2E_OrphanGC_RemovesUnknownChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mConn.Close()
+	defer func() { _ = mConn.Close() }()
 	mCli := godfsv1.NewMasterServiceClient(mConn)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

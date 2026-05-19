@@ -46,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("client: %v", err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	srv := &restgateway.Server{
 		Client:    cli,

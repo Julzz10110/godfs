@@ -120,7 +120,7 @@ func TestE2E_Rebalancer_HealsReplicaAfterNodeDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer hbConn.Close()
+	defer func() { _ = hbConn.Close() }()
 	hbClient := godfsv1.NewMasterServiceClient(hbConn)
 	live := map[string]bool{"a": true, "b": true}
 	go func() {

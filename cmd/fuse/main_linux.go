@@ -46,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("client: %v", err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	var cache *metaPathCache
 	if *cacheTTL > 0 {
@@ -58,12 +58,12 @@ func main() {
 	}
 
 	root := &node{
-		cli:         cli,
-		cache:       cache,
-		full:        mp,
-		isDir:       true,
-		mode:        0o755,
-		rpcTimeout:  *rpcTimeout,
+		cli:        cli,
+		cache:      cache,
+		full:       mp,
+		isDir:      true,
+		mode:       0o755,
+		rpcTimeout: *rpcTimeout,
 	}
 
 	opts := &fs.Options{

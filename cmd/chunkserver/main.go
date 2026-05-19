@@ -87,7 +87,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("dial master: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	capacityBytes := int64(1 << 40)
 	if v := os.Getenv("GODFS_CHUNK_CAPACITY_BYTES"); v != "" {

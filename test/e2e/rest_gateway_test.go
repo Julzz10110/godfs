@@ -33,7 +33,7 @@ func TestE2E_RESTGateway_PutGetRangeAndSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
@@ -325,7 +325,7 @@ func TestE2E_RESTGateway_MultipartUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
@@ -462,7 +462,7 @@ func TestE2E_RESTGateway_MaxUpload_413(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 1024}
 	mux := http.NewServeMux()
@@ -527,7 +527,7 @@ func TestE2E_RESTGateway_CORS_Preflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
@@ -579,7 +579,7 @@ func TestE2E_RESTGateway_RateLimit_429(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()
@@ -633,7 +633,7 @@ func TestE2E_RESTGateway_PresignedPUT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gwCli.Close()
+	defer func() { _ = gwCli.Close() }()
 
 	srv := &restgateway.Server{Client: gwCli, MaxUpload: 10 << 20}
 	mux := http.NewServeMux()

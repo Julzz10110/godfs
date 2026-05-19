@@ -115,7 +115,7 @@ func repChecksumFuncMeta(store *Store) func(context.Context, string, domain.Chun
 		if err != nil {
 			return nil, err
 		}
-		defer cc.Close()
+		defer func() { _ = cc.Close() }()
 		cli := godfsv1.NewChunkServiceClient(cc)
 		resp, err := cli.ChecksumChunk(ctx, &godfsv1.ChecksumChunkRequest{ChunkId: string(chunkID)})
 		if err != nil {

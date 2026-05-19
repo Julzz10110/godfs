@@ -45,4 +45,3 @@ func (c *Cache) Put(key string, sum []byte, now time.Time) {
 		exp: now.Add(c.ttl),
 	}
 }
-

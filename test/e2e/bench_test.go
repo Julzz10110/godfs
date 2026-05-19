@@ -27,7 +27,7 @@ func BenchmarkE2E_SingleChunkWrite_1Replica(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	if err := cli.Mkdir(ctx, "/bench"); err != nil {
 		b.Fatal(err)

@@ -193,7 +193,7 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial leader for heartbeat: %v", err)
 	}
-	defer connHB.Close()
+	defer func() { _ = connHB.Close() }()
 	mc := godfsv1.NewMasterServiceClient(connHB)
 	if _, err := mc.Heartbeat(hctx, &godfsv1.HeartbeatRequest{
 		NodeId:        "chunk-1",
@@ -239,7 +239,7 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 				loadErrs <- err
 				return
 			}
-			defer cw.Close()
+			defer func() { _ = cw.Close() }()
 			root := fmt.Sprintf("/ld%d", w)
 			if err := cw.Mkdir(ctx, root); err != nil {
 				loadErrs <- err
@@ -276,7 +276,7 @@ func TestE2E_RaftMaster_ReplicationAndFailover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli2.Close()
+	defer func() { _ = cli2.Close() }()
 	if err := cli2.Mkdir(ctx, "/b"); err != nil {
 		t.Fatalf("mkdir after failover: %v", err)
 	}

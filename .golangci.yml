@@ -8,6 +8,9 @@ run:
 formatters:
   enable:
     - gofumpt
+  settings:
+    gofumpt:
+      module-path: godfs
 
 linters:
   default: none
@@ -27,6 +30,8 @@ linters:
         - (io.Closer).Close
         - (*os.File).Close
         - (io.ReadCloser).Close
+        - (*google.golang.org/grpc.ClientConn).Close
+        - (*godfs/pkg/client.Client).Close
   exclusions:
     rules:
       - path: '^api/proto/'

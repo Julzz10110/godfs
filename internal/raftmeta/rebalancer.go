@@ -86,7 +86,7 @@ func (s *Service) PlanRebalance(at time.Time) (*RebalanceAction, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer cc.Close()
+		defer func() { _ = cc.Close() }()
 		cli := godfsv1.NewChunkServiceClient(cc)
 		resp, err := cli.ChecksumChunk(context.Background(), &godfsv1.ChecksumChunkRequest{ChunkId: string(chunkID)})
 		if err != nil {
@@ -201,7 +201,7 @@ func (s *Service) ExecuteRebalance(ctx context.Context, act *RebalanceAction) er
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch := godfsv1.NewChunkServiceClient(conn)
 	rc, err := ch.PullChunk(ctx, &godfsv1.PullChunkRequest{
