@@ -10,8 +10,14 @@ export GODFS_CLIENT_BIN="${GODFS_CLIENT_BIN:-${ROOT}/bin/godfs-client}"
 
 MASTER="${GODFS_MASTER_ADDR:?set GODFS_MASTER_ADDR (host:port)}"
 PREFIX="${GRPC_SMOKE_PREFIX:-/smoke_grpc}"
+CHUNK_WAIT_SEC="${GODFS_CHUNK_WAIT_SEC:-120}"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
+
+if ! wait_chunk_alive "$MASTER" "$CHUNK_WAIT_SEC"; then
+  echo "no alive chunk node on leader ${MASTER} within ${CHUNK_WAIT_SEC}s" >&2
+  exit 1
+fi
 
 godfs_client --master "$MASTER" mkdir "$PREFIX"
 godfs_client --master "$MASTER" create "${PREFIX}/ok.txt"

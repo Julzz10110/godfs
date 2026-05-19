@@ -76,9 +76,6 @@ func main() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	dopts, err := security.ClientDialOptions()
 	if err != nil {
 		log.Fatalf("dial options: %v", err)
@@ -97,12 +94,23 @@ func main() {
 	}
 
 	mc := godfsv1.NewMasterServiceClient(conn)
-	if _, err := mc.RegisterNode(ctx, &godfsv1.RegisterNodeRequest{
-		NodeId:        nodeID,
-		GrpcAddress:   advertise,
-		CapacityBytes: capacityBytes,
-	}); err != nil {
-		log.Fatalf("register: %v", err)
+	registerDeadline := time.Now().Add(3 * time.Minute)
+	for {
+		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, err := mc.RegisterNode(rctx, &godfsv1.RegisterNodeRequest{
+			NodeId:        nodeID,
+			GrpcAddress:   advertise,
+			CapacityBytes: capacityBytes,
+		})
+		cancel()
+		if err == nil {
+			break
+		}
+		if time.Now().After(registerDeadline) {
+			log.Fatalf("register: %v", err)
+		}
+		log.Printf("register retry (waiting for Raft leader on %s): %v", master, err)
+		time.Sleep(time.Second)
 	}
 	log.Printf("registered with master %s as %s @ %s", master, nodeID, advertise)
 

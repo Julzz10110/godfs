@@ -121,11 +121,11 @@ jobs:
             fi
           done
 
-      - name: Start chunk and REST after masters are up
-        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
-
       - name: Bootstrap Raft cluster (single-node then join)
         run: bash scripts/raft_compose_bootstrap.sh
+
+      - name: Start chunk and REST (after Raft leader is up)
+        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
 
       - name: Raft quorum break
         env:
@@ -136,8 +136,8 @@ jobs:
         run: |
           docker compose -f deployments/docker/docker-compose.raft.yml down -v
           docker compose -f deployments/docker/docker-compose.raft.yml up -d --build master-0 master-1 master-2
-          docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
           bash scripts/raft_compose_bootstrap.sh
+          docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
 
       - name: Raft leader kill chaos
         run: bash scripts/compose_raft_leader_chaos.sh

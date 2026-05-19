@@ -17,6 +17,20 @@ metrics_is_leader() {
     | grep -qE '^godfs_raft_is_leader (1|1\.0*)( |$)'
 }
 
+# Wait until ListChunkNodes reports at least one alive node on the given master gRPC address.
+wait_chunk_alive() {
+  local master_grpc="$1"
+  local timeout_sec="${2:-120}"
+  local deadline=$((SECONDS + timeout_sec))
+  while ((SECONDS < deadline)); do
+    if godfs_client --master "$master_grpc" nodes list 2>/dev/null | grep -q $'\talive$'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 # Echo 0..N-1 index of the master that answers masters list as leader; exit 1 if none.
 # Requires GRPC_PORTS and METRICS_PORTS arrays in the caller.
 raft_find_leader_index() {
