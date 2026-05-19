@@ -23,10 +23,15 @@
 
 ### Raft compose stack
 
+Bootstrap is **single-node then AddMaster** (same as e2e), not a 3-voter cold start:
+
 ```bash
 docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+bash scripts/raft_compose_bootstrap.sh
 bash scripts/compose_raft_leader_chaos.sh
 ```
+
+Netem uses `docker-compose.netem.yml` (`privileged: true` on chunk); if `tc` fails, `compose_netem_gate.sh` falls back to Toxiproxy latency.
 
 ### Update e2e bench baseline
 

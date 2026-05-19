@@ -27,11 +27,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install golangci-lint (match go.mod toolchain)
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1
+
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.12.1
-          args: --timeout=8m
+        run: golangci-lint run --timeout=8m
 
   test:
     runs-on: ubuntu-latest
@@ -106,19 +106,8 @@ jobs:
       - name: Build and start Raft stack
         run: docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
 
-      - name: Wait for Raft leader
-        run: |
-          for i in $(seq 1 120); do
-            for p in 9091 9094 9096; do
-              if curl -sf "http://127.0.0.1:${p}/metrics" | grep -qE '^godfs_raft_is_leader\s+1'; then
-                echo "leader metrics on :${p}"
-                exit 0
-              fi
-            done
-            sleep 1
-          done
-          echo "no leader within 120s" >&2
-          exit 1
+      - name: Bootstrap Raft cluster (single-node then join)
+        run: bash scripts/raft_compose_bootstrap.sh
 
       - name: Raft quorum break
         env:
@@ -129,16 +118,7 @@ jobs:
         run: |
           docker compose -f deployments/docker/docker-compose.raft.yml down -v
           docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
-          for i in $(seq 1 120); do
-            for p in 9091 9094 9096; do
-              if curl -sf "http://127.0.0.1:${p}/metrics" | grep -qE '^godfs_raft_is_leader\s+1'; then
-                exit 0
-              fi
-            done
-            sleep 1
-          done
-          echo "no leader after restart" >&2
-          exit 1
+          bash scripts/raft_compose_bootstrap.sh
 
       - name: Raft leader kill chaos
         run: bash scripts/compose_raft_leader_chaos.sh

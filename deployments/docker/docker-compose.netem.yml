@@ -1,0 +1,6 @@
+# Overlay for netem: tc needs privileged chunk on GitHub Actions runners.
+services:
+  chunk:
+    privileged: true
+    cap_add:
+      - NET_ADMIN

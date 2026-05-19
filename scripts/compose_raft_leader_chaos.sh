@@ -33,15 +33,7 @@ find_leader_index() {
 }
 
 wait_for_leader() {
-  local deadline=$((SECONDS + TIMEOUT_SEC))
-  while ((SECONDS < deadline)); do
-    if find_leader_index >/dev/null; then
-      return 0
-    fi
-    sleep 1
-  done
-  echo "timeout (${TIMEOUT_SEC}s) waiting for Raft leader (godfs_raft_is_leader=1)" >&2
-  return 1
+  GODFS_RAFT_LEADER_WAIT_TIMEOUT="$TIMEOUT_SEC" bash scripts/wait_raft_leader.sh
 }
 
 leader_grpc_addr() {

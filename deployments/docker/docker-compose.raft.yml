@@ -16,11 +16,18 @@ services:
       GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
       GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
       GODFS_MASTER_BOOTSTRAP: "1"
-      GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
+      # Bootstrap single-node cluster; master-1/2 join via scripts/raft_compose_bootstrap.sh (AddMaster).
+      GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090"
       GODFS_METRICS_LISTEN: "0.0.0.0:9091"
       GODFS_REPLICATION: "1"
     volumes:
       - raft0:/var/lib/godfs/raft
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9091/metrics"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   master-1:
     build:
@@ -42,8 +49,12 @@ services:
       GODFS_REPLICATION: "1"
     volumes:
       - raft1:/var/lib/godfs/raft
-    depends_on:
-      - master-0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9091/metrics"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   master-2:
     build:
@@ -65,8 +76,12 @@ services:
       GODFS_REPLICATION: "1"
     volumes:
       - raft2:/var/lib/godfs/raft
-    depends_on:
-      - master-0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9091/metrics"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   chunk:
     build:
@@ -86,9 +101,12 @@ services:
     volumes:
       - chunkdata:/var/lib/godfs
     depends_on:
-      - master-0
-      - master-1
-      - master-2
+      master-0:
+        condition: service_healthy
+      master-1:
+        condition: service_started
+      master-2:
+        condition: service_started
 
   rest:
     build:
