@@ -9,11 +9,16 @@ linters:
   default: none
   enable:
     - copyloopvar
+    - errcheck
+    - gofumpt
     - govet
     - ineffassign
     - misspell
     - staticcheck
     - unused
+  settings:
+    errcheck:
+      check-type-assertions: false
   exclusions:
     rules:
       - path: '^api/proto/'

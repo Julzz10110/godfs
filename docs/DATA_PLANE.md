@@ -52,6 +52,15 @@ When **`GODFS_SOFT_DELETE_GRACE`** > 0 on Master:
 - After grace, the purge loop hard-deletes metadata and enqueues chunk **DeleteChunk** (normal GC).
 - Directory deletes are immediate (not tombstoned).
 
+## Write path failures (client / REST)
+
+| Failure | Metadata effect |
+|---------|-----------------|
+| **Client disconnect** mid `WriteFromReader` / REST PUT | `CommitChunk` not called; file may exist with **size below** bytes sent. |
+| **SyncChunk** to secondary fails or times out (RF&gt;1) | Primary `WriteChunk` returns error; **no commit**; size stays below payload. Orphan chunk bytes on disk may be removed by **orphan GC** when unreferenced. |
+
+Tests: `test/integration/rest_partial_put_test.go`, `test/e2e/write_abort_test.go`, `test/e2e/syncchunk_timeout_test.go`.
+
 ## Operator actions
 
 - **Stuck under-replicated:** check dead nodes, `godfs_maint_rebalance_errors_total`, run `godfs-client rebalance-run` (admin).
@@ -63,4 +72,4 @@ When **`GODFS_SOFT_DELETE_GRACE`** > 0 on Master:
 
 - [RUNBOOK.md](RUNBOOK.md) — incidents and alerts  
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — Production-2 baseline  
-- E2E: `test/e2e/stale_repair_test.go`, `test/e2e/gc_test.go`
+- E2E: `test/e2e/stale_repair_test.go`, `test/e2e/gc_test.go`, `test/e2e/syncchunk_timeout_test.go`

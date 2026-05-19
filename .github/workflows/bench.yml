@@ -26,7 +26,18 @@ jobs:
       - name: benchstat vs baseline
         run: bash scripts/benchstat_report.sh bench_ClientWriteSegmentSplit.txt
 
+      - name: E2E benchmark report
+        run: bash scripts/bench_e2e_report.sh bench_E2E.txt
+
+      - name: benchstat E2E vs baseline
+        run: bash scripts/benchstat_e2e_report.sh bench_E2E.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: bench_ClientWriteSegmentSplit
           path: bench_ClientWriteSegmentSplit.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench_E2E
+          path: bench_E2E.txt

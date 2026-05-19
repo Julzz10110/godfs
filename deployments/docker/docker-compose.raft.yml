@@ -1,0 +1,110 @@
+# 3-node Raft masters + chunk + REST (leader-kill chaos).
+# Usage: docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+services:
+  master-0:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.master
+    hostname: master-0
+    ports:
+      - "9090:9090"
+      - "9091:9091"
+      - "9200:9200"
+    environment:
+      GODFS_MASTER_NODE_ID: master-0
+      GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
+      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
+      GODFS_MASTER_BOOTSTRAP: "1"
+      GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
+      GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+      GODFS_REPLICATION: "1"
+    volumes:
+      - raft0:/var/lib/godfs/raft
+
+  master-1:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.master
+    hostname: master-1
+    ports:
+      - "9093:9090"
+      - "9094:9091"
+      - "9201:9200"
+    environment:
+      GODFS_MASTER_NODE_ID: master-1
+      GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
+      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
+      GODFS_MASTER_BOOTSTRAP: "0"
+      GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
+      GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+      GODFS_REPLICATION: "1"
+    volumes:
+      - raft1:/var/lib/godfs/raft
+    depends_on:
+      - master-0
+
+  master-2:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.master
+    hostname: master-2
+    ports:
+      - "9095:9090"
+      - "9096:9091"
+      - "9202:9200"
+    environment:
+      GODFS_MASTER_NODE_ID: master-2
+      GODFS_MASTER_GRPC_LISTEN: "0.0.0.0:9090"
+      GODFS_MASTER_RAFT_LISTEN: "0.0.0.0:9200"
+      GODFS_MASTER_RAFT_DIR: /var/lib/godfs/raft
+      GODFS_MASTER_BOOTSTRAP: "0"
+      GODFS_MASTER_PEERS: "master-0@master-0:9200@master-0:9090,master-1@master-1:9200@master-1:9090,master-2@master-2:9200@master-2:9090"
+      GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+      GODFS_REPLICATION: "1"
+    volumes:
+      - raft2:/var/lib/godfs/raft
+    depends_on:
+      - master-0
+
+  chunk:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.chunkserver
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8000:8000"
+      - "9092:9091"
+    environment:
+      GODFS_MASTER: "master-0:9090"
+      GODFS_ADVERTISE_ADDR: "chunk:8000"
+      GODFS_CHUNK_LISTEN: "0.0.0.0:8000"
+      GODFS_CHUNK_DATA: "/var/lib/godfs/data"
+      GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+    volumes:
+      - chunkdata:/var/lib/godfs
+    depends_on:
+      - master-0
+      - master-1
+      - master-2
+
+  rest:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.restgateway
+    ports:
+      - "8080:8080"
+    environment:
+      GODFS_MASTER: "master-0:9090"
+      GODFS_CHUNK_SIZE_BYTES: "67108864"
+      GODFS_REST_LISTEN: "0.0.0.0:8080"
+    depends_on:
+      - chunk
+
+volumes:
+  raft0: {}
+  raft1: {}
+  raft2: {}
+  chunkdata: {}

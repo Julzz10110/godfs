@@ -87,6 +87,82 @@ jobs:
       - name: Chaos smoke (chunk restart)
         run: bash scripts/compose_chaos_smoke.sh
 
+      - name: Netem gate (chunk latency)
+        run: bash scripts/compose_netem_gate.sh
+
       - name: Tear down
         if: always()
         run: docker compose -f deployments/docker/docker-compose.yml -f deployments/docker/docker-compose.toxiproxy.yml down -v
+
+  raft-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build and start Raft stack
+        run: docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+
+      - name: Wait for Raft leader
+        run: |
+          for i in $(seq 1 120); do
+            for p in 9091 9094 9096; do
+              if curl -sf "http://127.0.0.1:${p}/metrics" | grep -qE '^godfs_raft_is_leader\s+1'; then
+                echo "leader metrics on :${p}"
+                exit 0
+              fi
+            done
+            sleep 1
+          done
+          echo "no leader within 120s" >&2
+          exit 1
+
+      - name: Raft quorum break
+        env:
+          GODFS_RAFT_CHAOS_QUORUM_BREAK: "1"
+        run: bash scripts/compose_raft_leader_chaos.sh
+
+      - name: Restart stack after quorum test
+        run: |
+          docker compose -f deployments/docker/docker-compose.raft.yml down -v
+          docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+          for i in $(seq 1 120); do
+            for p in 9091 9094 9096; do
+              if curl -sf "http://127.0.0.1:${p}/metrics" | grep -qE '^godfs_raft_is_leader\s+1'; then
+                exit 0
+              fi
+            done
+            sleep 1
+          done
+          echo "no leader after restart" >&2
+          exit 1
+
+      - name: Raft leader kill chaos
+        run: bash scripts/compose_raft_leader_chaos.sh
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deployments/docker/docker-compose.raft.yml down -v
+
+  testcontainers:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install helm
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Submodule smoke (optional module)
+        env:
+          GODFS_TESTCONTAINERS: "1"
+        run: |
+          cd test/containers
+          go test ./... -count=1 -v

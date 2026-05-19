@@ -106,6 +106,81 @@ func (c *Cluster) AddChunkServer(t testing.TB, nodeID, dataDir string) string {
 	return advertise
 }
 
+// stallSyncChunk blocks SyncChunk until the client stream context is cancelled (replication stall).
+type stallSyncChunk struct {
+	godfsv1.UnimplementedChunkServiceServer
+	inner godfsv1.ChunkServiceServer
+}
+
+func (s *stallSyncChunk) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) error {
+	return s.inner.WriteChunk(stream)
+}
+func (s *stallSyncChunk) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.ChunkService_ReadChunkServer) error {
+	return s.inner.ReadChunk(req, stream)
+}
+func (s *stallSyncChunk) DeleteChunk(ctx context.Context, req *godfsv1.DeleteChunkRequest) (*godfsv1.DeleteChunkResponse, error) {
+	return s.inner.DeleteChunk(ctx, req)
+}
+func (s *stallSyncChunk) SyncChunk(stream godfsv1.ChunkService_SyncChunkServer) error {
+	<-stream.Context().Done()
+	return stream.Context().Err()
+}
+
+// AddStallSyncChunkServer registers a chunk that blocks SyncChunk (secondary replication hang).
+func (c *Cluster) AddStallSyncChunkServer(t testing.TB, nodeID, dataDir string) string {
+	t.Helper()
+
+	st, err := chstor.NewFSStore(dataDir)
+	if err != nil {
+		t.Fatalf("chunk store: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen chunk: %v", err)
+	}
+	advertise := ln.Addr().String()
+
+	inner := &grpcsvc.ChunkServer{Store: st}
+	srv := grpc.NewServer(config.GRPCServerOptions()...)
+	godfsv1.RegisterChunkServiceServer(srv, &stallSyncChunk{inner: inner})
+
+	go func() {
+		if err := srv.Serve(ln); err != nil {
+			t.Logf("chunk %s serve: %v", nodeID, err)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dopts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	dopts = append(dopts, config.GRPCDialOptions()...)
+	conn, err := grpc.NewClient(c.MasterAddr, dopts...)
+	if err != nil {
+		t.Fatalf("dial master: %v", err)
+	}
+	defer conn.Close()
+	mc := godfsv1.NewMasterServiceClient(conn)
+	if _, err := mc.RegisterNode(ctx, &godfsv1.RegisterNodeRequest{
+		NodeId:        nodeID,
+		GrpcAddress:   advertise,
+		CapacityBytes: 1 << 30,
+	}); err != nil {
+		t.Fatalf("register node %s: %v", nodeID, err)
+	}
+
+	c.ChunkDirs = append(c.ChunkDirs, dataDir)
+	c.chunkSrvs = append(c.chunkSrvs, srv)
+	c.chunkLns = append(c.chunkLns, ln)
+
+	t.Cleanup(func() {
+		srv.Stop()
+		_ = ln.Close()
+	})
+
+	return advertise
+}
+
 // StopChunkServer stops one chunk gRPC server (failure simulation). Index matches registration order in AddChunkServer.
 func (c *Cluster) StopChunkServer(t testing.TB, index int) {
 	t.Helper()

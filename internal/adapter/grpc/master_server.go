@@ -293,10 +293,7 @@ func (m *MasterServer) CreateSnapshot(ctx context.Context, req *godfsv1.CreateSn
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := usecase.ValidateSnapshotLabel(req.GetLabel()); err != nil {
-		return nil, mapErr(err)
-	}
-	id, ts, err := m.Store.CreateSnapshot(ctx, req.GetLabel())
+	id, ts, err := usecase.CreateSnapshot(ctx, m.Store, req.GetLabel())
 	if err != nil {
 		return nil, mapErr(err)
 	}
