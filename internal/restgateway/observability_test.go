@@ -27,4 +27,3 @@ func TestWithHTTPMetrics_DoesNotPanicAndServes(t *testing.T) {
 		t.Fatalf("status=%d body=%q", resp.StatusCode, string(b))
 	}
 }
-

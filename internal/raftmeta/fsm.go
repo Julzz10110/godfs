@@ -103,12 +103,12 @@ func (f *FSM) Apply(l *raft.Log) any {
 
 	case cmdPrepareWrite:
 		var req struct {
-			Path      string
-			Offset    int64
-			Length    int64
-			LeaseID   domain.LeaseID
+			Path       string
+			Offset     int64
+			Length     int64
+			LeaseID    domain.LeaseID
 			NewChunkID domain.ChunkID
-			AtUnix    int64
+			AtUnix     int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
@@ -121,14 +121,14 @@ func (f *FSM) Apply(l *raft.Log) any {
 
 	case cmdCommitChunk:
 		var req struct {
-			Path       string
-			ChunkID    domain.ChunkID
-			ChunkIndex int64
+			Path        string
+			ChunkID     domain.ChunkID
+			ChunkIndex  int64
 			ChunkOffset int64
-			Written    int64
-			Checksum   []byte
-			Version    uint64
-			AtUnix     int64
+			Written     int64
+			Checksum    []byte
+			Version     uint64
+			AtUnix      int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
@@ -137,10 +137,10 @@ func (f *FSM) Apply(l *raft.Log) any {
 
 	case cmdHeartbeat:
 		var req struct {
-			NodeID       domain.NodeID
+			NodeID        domain.NodeID
 			CapacityBytes int64
-			UsedBytes    int64
-			AtUnix       int64
+			UsedBytes     int64
+			AtUnix        int64
 		}
 		if err := json.Unmarshal(env.Data, &req); err != nil {
 			return err
@@ -297,4 +297,3 @@ func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
 }
 
 func (s *fsmSnapshot) Release() {}
-

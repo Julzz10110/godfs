@@ -43,4 +43,3 @@ func TestFSStore_WriteFullFromReader_EnforcesMaxBytes(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
-

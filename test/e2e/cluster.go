@@ -115,12 +115,15 @@ type stallSyncChunk struct {
 func (s *stallSyncChunk) WriteChunk(stream godfsv1.ChunkService_WriteChunkServer) error {
 	return s.inner.WriteChunk(stream)
 }
+
 func (s *stallSyncChunk) ReadChunk(req *godfsv1.ReadChunkRequest, stream godfsv1.ChunkService_ReadChunkServer) error {
 	return s.inner.ReadChunk(req, stream)
 }
+
 func (s *stallSyncChunk) DeleteChunk(ctx context.Context, req *godfsv1.DeleteChunkRequest) (*godfsv1.DeleteChunkResponse, error) {
 	return s.inner.DeleteChunk(ctx, req)
 }
+
 func (s *stallSyncChunk) SyncChunk(stream godfsv1.ChunkService_SyncChunkServer) error {
 	<-stream.Context().Done()
 	return stream.Context().Err()

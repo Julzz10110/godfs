@@ -21,14 +21,14 @@ import (
 func startSingleRaftMaster(t *testing.T, grpcAddr, raftAddr, raftDir string, chunkSize int64, replication int, nodeDeadAfter time.Duration) (addr string, store *raftmeta.Service) {
 	t.Helper()
 	node, err := raftmeta.StartNode(raftmeta.NodeConfig{
-		NodeID:       "m0",
-		RaftListen:   raftAddr,
-		RaftDir:      raftDir,
-		ChunkSize:    chunkSize,
-		Replication:  replication,
+		NodeID:        "m0",
+		RaftListen:    raftAddr,
+		RaftDir:       raftDir,
+		ChunkSize:     chunkSize,
+		Replication:   replication,
 		NodeDeadAfter: nodeDeadAfter,
-		Peers:        nil,
-		Bootstrap:    true,
+		Peers:         nil,
+		Bootstrap:     true,
 	})
 	if err != nil {
 		t.Fatalf("start raft: %v", err)
@@ -211,4 +211,3 @@ func TestE2E_Rebalancer_HealsReplicaAfterNodeDown(t *testing.T) {
 	}
 	t.Fatalf("expected rebalanced .chk in %s", dirC)
 }
-

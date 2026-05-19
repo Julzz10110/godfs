@@ -21,13 +21,13 @@ type State struct {
 	// SoftDeleteGrace is node-local config (not replicated via Raft log); set the same on all masters.
 	SoftDeleteGrace time.Duration
 
-	Nodes        []domain.ChunkNode
+	Nodes         []domain.ChunkNode
 	NodeUsedBytes map[domain.NodeID]int64
 	NodeSet       map[domain.NodeID]int // node id -> index in Nodes
 	PlacementRR   int
 
-	Dirs  map[string]struct{}
-	Files map[string]*fileRec
+	Dirs   map[string]struct{}
+	Files  map[string]*fileRec
 	Chunks map[domain.ChunkID]*chunkRec
 
 	// NodeStatus tracks liveness and capacity telemetry reported by ChunkServers.
@@ -64,9 +64,9 @@ type chunkRec struct {
 }
 
 type nodeStatus struct {
-	LastSeen time.Time
+	LastSeen      time.Time
 	CapacityBytes int64
-	UsedBytes int64
+	UsedBytes     int64
 }
 
 type pendingDelete struct {
@@ -124,11 +124,11 @@ func NewState(chunkSize int64, replication int, leaseDur time.Duration, nodeDead
 		Dirs: map[string]struct{}{
 			"/": {},
 		},
-		Files:         map[string]*fileRec{},
-		Chunks:        map[domain.ChunkID]*chunkRec{},
-		NodeSet:       map[domain.NodeID]int{},
-		NodeUsedBytes: map[domain.NodeID]int64{},
-		NodeStatus:    map[domain.NodeID]*nodeStatus{},
+		Files:          map[string]*fileRec{},
+		Chunks:         map[domain.ChunkID]*chunkRec{},
+		NodeSet:        map[domain.NodeID]int{},
+		NodeUsedBytes:  map[domain.NodeID]int64{},
+		NodeStatus:     map[domain.NodeID]*nodeStatus{},
 		PendingDeletes: map[domain.ChunkID]map[string]*pendingDelete{},
 		RebalanceTasks: map[domain.ChunkID]*rebalanceTask{},
 		Snapshots:      map[string]*domain.BackupSnapshot{},
@@ -469,15 +469,15 @@ func (s *State) ListDir(p string) ([]string, bool, error) {
 }
 
 type PrepareWriteResult struct {
-	ChunkID         domain.ChunkID
-	PrimaryAddr     string
-	SecondaryAddrs  []string
-	PrimaryNodeID   domain.NodeID
-	LeaseID         domain.LeaseID
-	ChunkIndex      int64
-	ChunkOffset     int64
-	ChunkSize       int64
-	Version         uint64
+	ChunkID        domain.ChunkID
+	PrimaryAddr    string
+	SecondaryAddrs []string
+	PrimaryNodeID  domain.NodeID
+	LeaseID        domain.LeaseID
+	ChunkIndex     int64
+	ChunkOffset    int64
+	ChunkSize      int64
+	Version        uint64
 }
 
 func (s *State) PrepareWrite(path string, offset, length int64, leaseID domain.LeaseID, newChunkID domain.ChunkID, at time.Time) (PrepareWriteResult, error) {
@@ -778,4 +778,3 @@ func (s *State) deleteDir(d string) ([]domain.ChunkDeleteInfo, error) {
 	}
 	return infos, nil
 }
-

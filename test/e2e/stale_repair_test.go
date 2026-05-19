@@ -135,7 +135,7 @@ func TestE2E_StaleReplica_RepairedByRebalancer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mConn.Close()
+	defer func() { _ = mConn.Close() }()
 	mc := godfsv1.NewMasterServiceClient(mConn)
 	gr, err := mc.GetChunkForRead(ctx, &godfsv1.GetChunkForReadRequest{Path: "/s/x", Offset: 0})
 	if err != nil {
@@ -195,4 +195,3 @@ func TestE2E_StaleReplica_RepairedByRebalancer(t *testing.T) {
 	}
 	t.Fatalf("stale replica was not repaired in time")
 }
-

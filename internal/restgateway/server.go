@@ -590,8 +590,10 @@ func DefaultMaxUploadBytes() int64 {
 	return n
 }
 
-var singleRangeRe = regexp.MustCompile(`^bytes=(\d+)-(\d+)?$`)
-var suffixRangeRe = regexp.MustCompile(`^bytes=-(\d+)$`)
+var (
+	singleRangeRe = regexp.MustCompile(`^bytes=(\d+)-(\d+)?$`)
+	suffixRangeRe = regexp.MustCompile(`^bytes=-(\d+)$`)
+)
 
 type byteRange struct {
 	start int64

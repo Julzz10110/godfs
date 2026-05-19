@@ -124,4 +124,3 @@ func TestE2E_OrphanGC_RemovesUnknownChunks(t *testing.T) {
 		t.Fatalf("expected orphan chunk to be deleted: %s", orphanPath)
 	}
 }
-

@@ -20,10 +20,10 @@ import (
 )
 
 type chunkIndexEntry struct {
-	ChunkID          string `json:"chunk_id"`
-	SizeBytes        int64  `json:"size_bytes"`
+	ChunkID           string `json:"chunk_id"`
+	SizeBytes         int64  `json:"size_bytes"`
 	ChecksumSHA256Hex string `json:"checksum_sha256_hex"`
-	ModUnix          int64  `json:"mod_unix"`
+	ModUnix           int64  `json:"mod_unix"`
 }
 
 func main() {

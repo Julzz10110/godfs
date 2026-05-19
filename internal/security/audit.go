@@ -51,18 +51,18 @@ func NewAuditLoggerFromEnv() (*AuditLogger, error) {
 
 // Event is a single audit record.
 type Event struct {
-	TS         string `json:"ts"`
-	Principal  string `json:"principal,omitempty"`
-	Service    string `json:"service"`
-	Method     string `json:"method"`
-	Path       string `json:"path,omitempty"`
-	OldPath    string `json:"old_path,omitempty"`
-	NewPath    string `json:"new_path,omitempty"`
-	ChunkID    string `json:"chunk_id,omitempty"`
-	Streaming  bool   `json:"streaming,omitempty"`
-	RequestID  string `json:"request_id,omitempty"`
-	OK         bool   `json:"ok"`
-	Err        string `json:"err,omitempty"`
+	TS        string `json:"ts"`
+	Principal string `json:"principal,omitempty"`
+	Service   string `json:"service"`
+	Method    string `json:"method"`
+	Path      string `json:"path,omitempty"`
+	OldPath   string `json:"old_path,omitempty"`
+	NewPath   string `json:"new_path,omitempty"`
+	ChunkID   string `json:"chunk_id,omitempty"`
+	Streaming bool   `json:"streaming,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	OK        bool   `json:"ok"`
+	Err       string `json:"err,omitempty"`
 }
 
 // LogMaster records a master RPC outcome.

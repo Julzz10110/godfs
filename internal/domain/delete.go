@@ -6,4 +6,3 @@ type ChunkDeleteInfo struct {
 	ChunkID  ChunkID
 	Replicas []string
 }
-

@@ -1,6 +1,8 @@
 package domain
 
-type FileID string
-type ChunkID string
-type NodeID string
-type LeaseID string
+type (
+	FileID  string
+	ChunkID string
+	NodeID  string
+	LeaseID string
+)

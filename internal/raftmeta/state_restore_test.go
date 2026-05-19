@@ -77,4 +77,3 @@ func TestStateRestoreSnapshot_RoundTrip(t *testing.T) {
 		t.Fatalf("expected replicas")
 	}
 }
-

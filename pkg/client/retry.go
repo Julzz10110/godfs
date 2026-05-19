@@ -25,7 +25,7 @@ func isRetryableGRPC(err error) bool {
 		return true
 	default:
 		return false
-}
+	}
 }
 
 // grpcRetry runs fn up to attempts times with exponential backoff on retryable gRPC errors.

@@ -734,4 +734,3 @@ func TestE2E_RESTGateway_PresignedPUT(t *testing.T) {
 		t.Fatalf("payload mismatch")
 	}
 }
-

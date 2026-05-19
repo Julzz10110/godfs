@@ -13,10 +13,10 @@ import (
 
 // TLSConfig holds paths loaded from environment for server and client TLS.
 type TLSConfig struct {
-	Enabled        bool
-	CertFile       string
-	KeyFile        string
-	CAFile         string
+	Enabled  bool
+	CertFile string
+	KeyFile  string
+	CAFile   string
 	// ExtraCAFile is optional; PEM certs are appended to the trust pool (dual CA / bridge rotation).
 	ExtraCAFile    string
 	ClientCertFile string

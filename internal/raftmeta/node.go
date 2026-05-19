@@ -16,26 +16,26 @@ import (
 )
 
 type NodeConfig struct {
-	NodeID      string
-	RaftListen  string
-	RaftDir     string
+	NodeID        string
+	RaftListen    string
+	RaftDir       string
 	GRPCAdvertise string // optional: used for redirects (should match peers list)
 
-	ChunkSize    int64
-	Replication  int
-	LeaseDur     time.Duration
+	ChunkSize     int64
+	Replication   int
+	LeaseDur      time.Duration
 	NodeDeadAfter time.Duration
 
-	Peers        map[string]raft.ServerAddress
-	Bootstrap    bool
+	Peers     map[string]raft.ServerAddress
+	Bootstrap bool
 }
 
 type Node struct {
 	Raft *raft.Raft
 	FSM  *FSM
 
-	transport *raft.NetworkTransport
-	logStore  *raftboltdb.BoltStore
+	transport   *raft.NetworkTransport
+	logStore    *raftboltdb.BoltStore
 	stableStore *raftboltdb.BoltStore
 }
 
@@ -149,4 +149,3 @@ func (n *Node) Close() error {
 	}
 	return nil
 }
-

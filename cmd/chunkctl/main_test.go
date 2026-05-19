@@ -46,4 +46,3 @@ func TestBackupRestore_RoundTrip(t *testing.T) {
 		t.Fatalf("c2 mismatch: %q", string(b2))
 	}
 }
-

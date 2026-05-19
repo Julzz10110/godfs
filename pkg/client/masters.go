@@ -39,4 +39,3 @@ func (c *Client) RemoveMaster(ctx context.Context, nodeID string) error {
 		return err
 	})
 }
-

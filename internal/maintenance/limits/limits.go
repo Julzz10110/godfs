@@ -105,4 +105,3 @@ func (l *Limiter) perKeyChan(kind Kind, key string) chan struct{} {
 	m[key] = ch
 	return ch
 }
-

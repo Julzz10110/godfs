@@ -29,14 +29,14 @@ func TestE2E_DeleteGC_RetriesUntilPeerDeleted(t *testing.T) {
 	raftAddr := raftLn.Addr().String()
 	_ = raftLn.Close()
 	node, err := raftmeta.StartNode(raftmeta.NodeConfig{
-		NodeID:       "m0",
-		RaftListen:   raftAddr,
-		RaftDir:      filepath.Join(base, "raft"),
-		ChunkSize:    chunkSize,
-		Replication:  replication,
+		NodeID:        "m0",
+		RaftListen:    raftAddr,
+		RaftDir:       filepath.Join(base, "raft"),
+		ChunkSize:     chunkSize,
+		Replication:   replication,
 		NodeDeadAfter: 0,
-		Peers:        nil,
-		Bootstrap:    true,
+		Peers:         nil,
+		Bootstrap:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -169,4 +169,3 @@ func TestE2E_DeleteGC_RetriesUntilPeerDeleted(t *testing.T) {
 	}
 	t.Fatalf("expected chunk files to be GCed in %s", chDir)
 }
-

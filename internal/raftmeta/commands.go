@@ -7,28 +7,28 @@ import (
 type commandType string
 
 const (
-	cmdRegisterNode commandType = "register_node"
-	cmdMkdir        commandType = "mkdir"
-	cmdCreateFile   commandType = "create_file"
-	cmdRename       commandType = "rename"
-	cmdDelete       commandType = "delete"
-	cmdRestoreFile  commandType = "restore_file"
-	cmdPrepareWrite commandType = "prepare_write"
-	cmdCommitChunk  commandType = "commit_chunk"
-	cmdHeartbeat    commandType = "heartbeat"
-	cmdAddReplica   commandType = "add_replica"
-	cmdClearPendingDeleteAddr commandType = "clear_pending_delete_addr"
+	cmdRegisterNode             commandType = "register_node"
+	cmdMkdir                    commandType = "mkdir"
+	cmdCreateFile               commandType = "create_file"
+	cmdRename                   commandType = "rename"
+	cmdDelete                   commandType = "delete"
+	cmdRestoreFile              commandType = "restore_file"
+	cmdPrepareWrite             commandType = "prepare_write"
+	cmdCommitChunk              commandType = "commit_chunk"
+	cmdHeartbeat                commandType = "heartbeat"
+	cmdAddReplica               commandType = "add_replica"
+	cmdClearPendingDeleteAddr   commandType = "clear_pending_delete_addr"
 	cmdMarkPendingDeleteAttempt commandType = "mark_pending_delete_attempt"
-	cmdMarkRebalanceAttempt commandType = "mark_rebalance_attempt"
-	cmdClearRebalanceTask commandType = "clear_rebalance_task"
-	cmdCreateSnapshot     commandType = "create_snapshot"
-	cmdDeleteSnapshot     commandType = "delete_snapshot"
-	cmdRestoreSnapshot    commandType = "restore_snapshot"
+	cmdMarkRebalanceAttempt     commandType = "mark_rebalance_attempt"
+	cmdClearRebalanceTask       commandType = "clear_rebalance_task"
+	cmdCreateSnapshot           commandType = "create_snapshot"
+	cmdDeleteSnapshot           commandType = "delete_snapshot"
+	cmdRestoreSnapshot          commandType = "restore_snapshot"
 )
 
 type commandEnvelope struct {
-	Type commandType       `json:"type"`
-	Data json.RawMessage   `json:"data"`
+	Type commandType     `json:"type"`
+	Data json.RawMessage `json:"data"`
 }
 
 func encodeCommand(t commandType, v any) ([]byte, error) {
@@ -45,4 +45,3 @@ func decodeEnvelope(b []byte) (commandEnvelope, error) {
 	err := json.Unmarshal(b, &env)
 	return env, err
 }
-

@@ -142,4 +142,3 @@ func (s *Store) RestoreSnapshot(_ context.Context, manifest *domain.BackupSnapsh
 	}
 	return nil
 }
-

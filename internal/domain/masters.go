@@ -7,4 +7,3 @@ type MasterPeer struct {
 	GRPCAddress string
 	Voter       bool
 }
-

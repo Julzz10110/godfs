@@ -158,4 +158,3 @@ func TestE2E_Rebalancer_MarksUnrepairableWhenNoGoodReplica(t *testing.T) {
 		t.Fatalf("expected UnrepairableChunks>=1, got %d", st.UnrepairableChunks)
 	}
 }
-

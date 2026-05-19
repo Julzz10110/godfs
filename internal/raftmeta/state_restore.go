@@ -130,4 +130,3 @@ func (s *State) RestoreSnapshot(manifest *domain.BackupSnapshot, force bool) err
 	}
 	return nil
 }
-

@@ -13,14 +13,14 @@ import (
 )
 
 type corsConfig struct {
-	enabled      bool
-	allowOrigins map[string]struct{}
-	allowAll     bool
-	allowMethods string
-	allowHeaders string
-	exposeHeaders string
+	enabled          bool
+	allowOrigins     map[string]struct{}
+	allowAll         bool
+	allowMethods     string
+	allowHeaders     string
+	exposeHeaders    string
 	allowCredentials bool
-	maxAgeSeconds int
+	maxAgeSeconds    int
 }
 
 func corsFromEnv() corsConfig {
@@ -29,13 +29,13 @@ func corsFromEnv() corsConfig {
 		return corsConfig{enabled: false}
 	}
 	cfg := corsConfig{
-		enabled:      true,
-		allowOrigins: map[string]struct{}{},
-		allowMethods: getenv("GODFS_REST_CORS_ALLOW_METHODS", "GET,HEAD,POST,PUT,DELETE,OPTIONS"),
-		allowHeaders: getenv("GODFS_REST_CORS_ALLOW_HEADERS", "Authorization,Content-Type,Range,If-Range,If-None-Match,If-Modified-Since"),
-		exposeHeaders: getenv("GODFS_REST_CORS_EXPOSE_HEADERS", "ETag,Last-Modified,Content-Range,Accept-Ranges,Content-Length"),
+		enabled:          true,
+		allowOrigins:     map[string]struct{}{},
+		allowMethods:     getenv("GODFS_REST_CORS_ALLOW_METHODS", "GET,HEAD,POST,PUT,DELETE,OPTIONS"),
+		allowHeaders:     getenv("GODFS_REST_CORS_ALLOW_HEADERS", "Authorization,Content-Type,Range,If-Range,If-None-Match,If-Modified-Since"),
+		exposeHeaders:    getenv("GODFS_REST_CORS_EXPOSE_HEADERS", "ETag,Last-Modified,Content-Range,Accept-Ranges,Content-Length"),
 		allowCredentials: getenv("GODFS_REST_CORS_ALLOW_CREDENTIALS", "") == "1" || strings.EqualFold(getenv("GODFS_REST_CORS_ALLOW_CREDENTIALS", ""), "true"),
-		maxAgeSeconds: atoi(getenv("GODFS_REST_CORS_MAX_AGE", "600"), 600),
+		maxAgeSeconds:    atoi(getenv("GODFS_REST_CORS_MAX_AGE", "600"), 600),
 	}
 	for _, o := range strings.Split(origins, ",") {
 		o = strings.TrimSpace(o)
@@ -207,4 +207,3 @@ func atoi(s string, def int) int {
 	}
 	return n
 }
-

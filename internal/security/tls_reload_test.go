@@ -28,4 +28,3 @@ func TestCertReloader_ReloadsCA(t *testing.T) {
 		t.Fatal("expected error for invalid CA PEM")
 	}
 }
-

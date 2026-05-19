@@ -10,13 +10,13 @@ type ChunkReplica struct {
 
 // Chunk is metadata for a chunk on the master (replication group).
 type Chunk struct {
-	ID        ChunkID
-	Size      int64
-	Checksum  []byte
-	Replicas  []ChunkReplica // [0] is primary
-	Primary   NodeID
-	Lease     *Lease
-	Version   uint64
+	ID       ChunkID
+	Size     int64
+	Checksum []byte
+	Replicas []ChunkReplica // [0] is primary
+	Primary  NodeID
+	Lease    *Lease
+	Version  uint64
 }
 
 // Lease grants exclusive write to one client for a short period.

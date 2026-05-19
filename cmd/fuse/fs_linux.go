@@ -183,7 +183,7 @@ func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint3
 	child := &node{cli: n.cli, cache: n.cache, full: full, rpcTimeout: n.rpcTimeout}
 	if errno := child.ensureMeta(cctx); errno != 0 {
 		child.isDir = false
-		child.mode = mode & 0777
+		child.mode = mode & 0o777
 		child.size = 0
 		now := time.Now()
 		child.mtime = now
@@ -216,7 +216,7 @@ func (n *node) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.En
 	child := &node{cli: n.cli, cache: n.cache, full: full, rpcTimeout: n.rpcTimeout}
 	if errno := child.ensureMeta(cctx); errno != 0 {
 		child.isDir = true
-		child.mode = mode & 0777
+		child.mode = mode & 0o777
 		child.size = 0
 		now := time.Now()
 		child.mtime = now
@@ -395,14 +395,14 @@ func (n *node) attrMode() uint32 {
 }
 
 var (
-	_ fs.NodeMkdirer    = (*node)(nil)
-	_ fs.NodeCreater    = (*node)(nil)
-	_ fs.NodeUnlinker   = (*node)(nil)
-	_ fs.NodeRmdirer    = (*node)(nil)
-	_ fs.NodeRenamer    = (*node)(nil)
-	_ fs.NodeSetattrer  = (*node)(nil)
-	_ fs.FileWriter     = (*fileHandle)(nil)
-	_ fs.FileFlusher    = (*fileHandle)(nil)
-	_ fs.FileReleaser   = (*fileHandle)(nil)
-	_ fs.FileFsyncer    = (*fileHandle)(nil)
+	_ fs.NodeMkdirer   = (*node)(nil)
+	_ fs.NodeCreater   = (*node)(nil)
+	_ fs.NodeUnlinker  = (*node)(nil)
+	_ fs.NodeRmdirer   = (*node)(nil)
+	_ fs.NodeRenamer   = (*node)(nil)
+	_ fs.NodeSetattrer = (*node)(nil)
+	_ fs.FileWriter    = (*fileHandle)(nil)
+	_ fs.FileFlusher   = (*fileHandle)(nil)
+	_ fs.FileReleaser  = (*fileHandle)(nil)
+	_ fs.FileFsyncer   = (*fileHandle)(nil)
 )

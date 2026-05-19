@@ -83,8 +83,9 @@ func TestE2E_RaftMembershipChange_ViaAdminRPC(t *testing.T) {
 }
 
 // Ensure test file links packages used in other e2e helpers.
-var _ = raftmeta.NodeConfig{}
-var _ = grpc.NewServer
-var _ = godfsv1.RegisterMasterServiceServer
-var _ = grpcsvc.MasterServer{}
-
+var (
+	_ = raftmeta.NodeConfig{}
+	_ = grpc.NewServer
+	_ = godfsv1.RegisterMasterServiceServer
+	_ = grpcsvc.MasterServer{}
+)
