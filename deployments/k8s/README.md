@@ -8,6 +8,15 @@ Apply everything with Kustomize:
 kubectl apply -k deployments/k8s
 ```
 
+**Production overlay** (Ingress, observability CRs, PVC chunk, affinity, probes):
+
+```bash
+kubectl apply -k deployments/k8s/overlays/production
+bash scripts/k8s_verify_manifests.sh   # dry-run gate
+```
+
+Guide: [`docs/K8S_PRODUCTION.md`](../../docs/K8S_PRODUCTION.md).
+
 Or apply manifests in order (single-node example):
 
 ```bash

@@ -18,6 +18,14 @@ jobs:
       - name: observability gate (promtool, helm template, rules sync)
         run: bash scripts/observability_check.sh
 
+  k8s-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kubernetes manifest dry-run (kustomize production overlay)
+        run: bash scripts/k8s_verify_manifests.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:

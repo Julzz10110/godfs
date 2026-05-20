@@ -1,0 +1,21 @@
+# Production overlay: Ingress, observability CRs, resource/affinity/probe tuning, chunk PVC.
+#
+#   kubectl apply -k deployments/k8s/overlays/production
+#   kubectl apply -k deployments/k8s/overlays/production --dry-run=client
+#
+# First bootstrap: see docs/K8S_PRODUCTION.md — temporarily enable GODFS_MASTER_BOOTSTRAP on the base
+# StatefulSet or use the lab overlay before switching to this overlay for steady-state.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../
+  - ../../ingress-restgateway.yaml
+  - chunk-data-pvc.yaml
+  - ../../../observability/prometheus-rules-godfs.yaml
+  - ../../../observability/servicemonitors-godfs.yaml
+
+patches:
+  - path: patches/master-production.yaml
+  - path: patches/chunk-production.yaml
+  - path: patches/gateway-production.yaml

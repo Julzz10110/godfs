@@ -1,0 +1,32 @@
+# Example Ingress for external REST clients (TLS at the edge; Bearer token per request).
+# Replace godfs.example.com and secretName before apply. Requires an Ingress controller (e.g. ingress-nginx).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: godfs-restgateway
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs-restgateway
+  annotations:
+    # Large object uploads via REST PUT; tune to your max object size policy.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - godfs.example.com
+      secretName: godfs-restgateway-tls
+  rules:
+    - host: godfs.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: godfs-restgateway
+                port:
+                  number: 8080

@@ -7,6 +7,7 @@
 | `lint` | `ci.yml` | golangci-lint (`errcheck`, `gofumpt`, …) |
 | `test` | `ci.yml` | unit tests, e2e (incl. Raft failover), FUSE build, `bench_gate.sh` |
 | `observability` | `ci.yml` | M4: promtool + Helm rules sync |
+| `k8s-manifests` | `ci.yml` | M6: `kubectl apply -k …/overlays/production --dry-run=client` |
 | `rest-compose` | `ci.yml` | Docker stack, REST smoke, toxiproxy, integration, chunk chaos, **netem** |
 | `raft-compose` | `ci.yml` | 3× master Raft, bootstrap, leader-kill gRPC smoke, quorum-break |
 | `bench` | `bench.yml` | weekly unit bench + **e2e bench artifact** |
@@ -20,6 +21,8 @@
 | `scripts/compose_raft_leader_chaos.sh` + `GODFS_RAFT_CHAOS_QUORUM_BREAK=1` | Kill 2 masters; expect no leader |
 | `scripts/compose_netem_gate.sh` | tc netem ~200ms on chunk; REST smoke |
 | `scripts/bench_e2e_report.sh` | Write `BenchmarkE2E_*` output for bench workflow |
+| `scripts/k8s_verify_manifests.sh` | Kustomize base + production overlay client dry-run |
+| `scripts/k8s_raft_membership_smoke.sh` | `masters list` (+ optional lab add/remove) via port-forward |
 
 ### Raft compose stack
 

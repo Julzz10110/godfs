@@ -1,0 +1,40 @@
+# Optional NetworkPolicy example (NOT included in default kustomize bases).
+# Copy into your overlay or apply manually after reviewing CNI support and ingress paths.
+#
+#   kubectl apply -f deployments/k8s/network-policy-example.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: godfs-restgateway-ingress
+  namespace: godfs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-restgateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: godfs-internal-grpc
+  namespace: godfs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: godfs
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: godfs
