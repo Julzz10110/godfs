@@ -9,7 +9,7 @@ Step-by-step setup for your **first production cluster** using only artifacts fr
 | Namespace `godfs` | `deployments/k8s/base/namespace.yaml` | Isolation |
 | Master Raft (5 voters) | `base/master-raft-statefulset.yaml`, `base/master-raft-services.yaml`, `base/master-raft-pdb.yaml` | Metadata + quorum |
 | ChunkServer | `base/chunkserver.yaml` (+ PVC in production overlay) | Data plane |
-| REST gateway | `base/restgateway.yaml`, `ingress-restgateway.yaml` | HTTP `/v1` for clients |
+| REST gateway | `base/restgateway.yaml`, `overlays/production/ingress-restgateway.yaml` | HTTP `/v1` for clients |
 | Observability | `deployments/observability/*.yaml` | PrometheusRule + ServiceMonitor |
 | DR (optional) | `deployments/k8s/dr/` | Snapshot backup/restore |
 
@@ -27,7 +27,7 @@ Before `kubectl apply` in production:
 6. **TLS:** Secret `godfs-tls` (cert/key/ca); `GODFS_TLS_RELOAD=1` for rotation without restart.
 7. **Auth:** Secret `godfs-auth` — `GODFS_CLUSTER_KEY`, `GODFS_API_KEYS`, `GODFS_RBAC_JSON` (or ESO: `deployments/k8s/external-secrets/`).
 8. **Images:** pin tags/registry in StatefulSet/Deployment; avoid unpinned `latest` in prod.
-9. **Ingress:** set host/TLS secret in `ingress-restgateway.yaml`; tune timeouts/body size for max object size.
+9. **Ingress:** set host/TLS secret in `overlays/production/ingress-restgateway.yaml`; tune timeouts/body size for max object size.
 10. **Monitoring:** Prometheus Operator + `servicemonitors-godfs.yaml` + `prometheus-rules-godfs.yaml`; Grafana dashboard `deployments/observability/dashboards/godfs-overview.json`.
 11. **Tracing (optional):** `OTEL_EXPORTER_OTLP_ENDPOINT` on pods.
 12. **NetworkPolicy (optional):** example `deployments/k8s/network-policy-example.yaml` — verify CNI and ingress controller namespace.
@@ -78,7 +78,7 @@ Wait until master pods are Ready and a leader is elected (logs / port-forward + 
 **After bootstrap**, switch to the production overlay (bootstrap=0, resources, Ingress, observability):
 
 ```bash
-# Edit host/TLS in deployments/k8s/ingress-restgateway.yaml
+# Edit host/TLS in deployments/k8s/overlays/production/ingress-restgateway.yaml
 kubectl apply -k deployments/k8s/overlays/production
 ```
 
@@ -102,10 +102,7 @@ curl -sk -H "Authorization: Bearer <api-key>" https://godfs.example.com/v1/healt
 
 ### 5. Prometheus rules + dashboard
 
-Already included in the production overlay:
-
-- `deployments/observability/prometheus-rules-godfs.yaml`
-- `deployments/observability/servicemonitors-godfs.yaml`
+Already included in the production overlay (`overlays/production/observability/`; keep in sync with `deployments/observability/` via `scripts/sync_observability_rules.sh`):
 
 Import into Grafana: `deployments/observability/dashboards/godfs-overview.json`.
 

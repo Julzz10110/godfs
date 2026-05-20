@@ -40,4 +40,7 @@ ruby -ryaml -e '
   File.write(ARGV[1], YAML.dump(crd))
 ' "$RULES_FILE" "$CRD_FILE"
 
-echo "synced $RULES_FILE and $CRD_FILE from Helm chart"
+OVERLAY_RULES="$ROOT/deployments/k8s/overlays/production/observability/prometheus-rules-godfs.yaml"
+cp "$CRD_FILE" "$OVERLAY_RULES"
+
+echo "synced $RULES_FILE, $CRD_FILE, and $OVERLAY_RULES from Helm chart"

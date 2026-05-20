@@ -10,10 +10,9 @@ kind: Kustomization
 
 resources:
   - ../../base
-  - ../../ingress-restgateway.yaml
+  - ingress-restgateway.yaml
   - chunk-data-pvc.yaml
-  - ../../../observability/prometheus-rules-godfs.yaml
-  - ../../../observability/servicemonitors-godfs.yaml
+  - observability
 
 patches:
   - path: patches/master-production.yaml

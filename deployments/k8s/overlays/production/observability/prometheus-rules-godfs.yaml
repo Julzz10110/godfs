@@ -1,0 +1,142 @@
+# PrometheusRule for kubectl apply (namespace godfs).
+# Copy of deployments/observability/prometheus-rules-godfs.yaml — run scripts/sync_observability_rules.sh
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: godfs-rules
+  namespace: godfs
+spec:
+  groups:
+    - name: godfs.raft
+      rules:
+        - alert: GodfsRaftNoLeader
+          expr: sum(godfs_raft_is_leader) == 0
+          for: 30s
+          labels:
+            severity: critical
+          annotations:
+            summary: "goDFS: no Raft leader elected"
+            description: "No master pod reports itself as leader. Check Raft connectivity, quorum, and recent restarts."
+        - alert: GodfsRaftLowVoters
+          expr: max(godfs_raft_cluster_voters) < 3
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: Raft voter count too low"
+            description: "Raft cluster has fewer than 3 voters (leader-reported). Risk of losing quorum."
+
+    - name: godfs.dataplane
+      rules:
+        - alert: GodfsUnderReplicatedChunks
+          expr: max(godfs_data_under_replicated_chunks) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: under-replicated chunks present"
+            description: "Some chunks have fewer live replicas than target RF. Investigate dead chunk nodes or rebalancer errors."
+        - alert: GodfsUnrepairableChunks
+          expr: max(godfs_data_unrepairable_chunks) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "goDFS: unrepairable chunks detected"
+            description: "Rebalancer could not find any good replica matching master checksum. Manual intervention likely required."
+        - alert: GodfsPendingDeletesBacklog
+          expr: max(godfs_data_pending_deletes) > 1000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: large pending delete backlog"
+            description: "Many pending DeleteChunk entries; chunk nodes may be down or DeleteChunk failing. Check godfs_maint_delete_errors_total and chunk health."
+        - alert: GodfsRebalanceQueueHigh
+          expr: max(godfs_maint_rebalance_queue_depth) > 200
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: rebalance queue depth is high"
+            description: "Many chunk rebalance state machines are active. Check godfs_maint_rebalance_errors_total and chunk connectivity."
+        - alert: GodfsHealingMayBeStalled
+          expr: max(godfs_data_under_replicated_chunks) > 0 and sum(rate(godfs_maint_rebalance_actions_total[20m])) == 0
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: under-replicated chunks but no recent rebalance actions"
+            description: "Master sees under-replicated chunks but no rebalance actions were recorded in 20m. Verify leader, rebalancer interval, maintenance limits (GODFS_MAINT_*), and chunk errors."
+
+    - name: godfs.slo.recording
+      interval: 30s
+      rules:
+        - record: godfs:grpc_server_handling_seconds:p95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(grpc_server_handling_seconds_bucket{grpc_type="unary"}[5m])) by (le, grpc_service, grpc_method)
+            )
+        - record: godfs:grpc_server_handling_seconds:p99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(grpc_server_handling_seconds_bucket{grpc_type="unary"}[5m])) by (le, grpc_service, grpc_method)
+            )
+        - record: godfs:grpc_server_handling_seconds:p99:max
+          expr: max(godfs:grpc_server_handling_seconds:p99)
+        - record: godfs:grpc_unary_latency:p95
+          expr: godfs:grpc_server_handling_seconds:p95
+        - record: godfs:grpc_unary_latency:p99
+          expr: godfs:grpc_server_handling_seconds:p99
+        - record: godfs:rest_http_request_duration_seconds:p95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(godfs_rest_http_request_duration_seconds_bucket[5m])) by (le, route, method)
+            )
+        - record: godfs:rest_http_request_duration_seconds:p95:all
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(godfs_rest_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+        - record: godfs:rest_http_requests:rate5m
+          expr: sum(rate(godfs_rest_http_requests_total[5m])) by (route, method, code)
+
+    - name: godfs.slo
+      rules:
+        - alert: GodfsGRPCUnaryP99High
+          expr: godfs:grpc_server_handling_seconds:p99:max > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: gRPC unary p99 latency high"
+            description: "Max unary p99 across methods exceeds 2s. Tune prometheus.slo.grpcUnaryP99MaxSeconds or check chunk/master load."
+        - alert: GodfsGRPCPrepareWriteP99High
+          expr: |
+            (godfs:grpc_server_handling_seconds:p99{grpc_method="PrepareWrite"} > 1)
+            or (godfs:grpc_server_handling_seconds:p99{grpc_method="/godfs.v1.MasterService/PrepareWrite"} > 1)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: PrepareWrite p99 above 1s"
+            description: "Write path latency SLO breach. Check Raft leader, chunk placement, and chunk disk."
+        - alert: GodfsRESTLatencyP95High
+          expr: godfs:rest_http_request_duration_seconds:p95:all > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: REST gateway p95 latency high"
+            description: "Aggregate REST p95 exceeds 5s. Inspect per-route godfs:rest_http_request_duration_seconds:p95."
+        - alert: GodfsRESTErrorRateHigh
+          expr: |
+            sum(rate(godfs_rest_http_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(godfs_rest_http_requests_total[5m])), 0.001)
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "goDFS: REST 5xx rate SLO breach"
+            description: "REST 5xx share exceeds prometheus.slo.rest5xxRate. Correlate with request_id in logs and traces."

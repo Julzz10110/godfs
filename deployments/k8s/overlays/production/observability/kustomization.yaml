@@ -1,0 +1,8 @@
+# Prometheus Operator CRs for the production overlay.
+# Keep in sync with deployments/observability/ (run scripts/sync_observability_rules.sh for rules).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - prometheus-rules-godfs.yaml
+  - servicemonitors-godfs.yaml

@@ -1,0 +1,62 @@
+# Prometheus Operator ServiceMonitors for goDFS metrics (:9091 /metrics).
+# Copy of deployments/observability/servicemonitors-godfs.yaml (production kustomize overlay).
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: godfs-master
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs
+    app.kubernetes.io/component: master
+spec:
+  namespaceSelector:
+    matchNames:
+      - godfs
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-master
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: godfs-chunk
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs
+    app.kubernetes.io/component: chunk
+spec:
+  namespaceSelector:
+    matchNames:
+      - godfs
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-chunk
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: godfs-restgateway
+  namespace: godfs
+  labels:
+    app.kubernetes.io/name: godfs
+    app.kubernetes.io/component: restgateway
+spec:
+  namespaceSelector:
+    matchNames:
+      - godfs
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: godfs-restgateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
