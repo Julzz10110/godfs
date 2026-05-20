@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Validate Kubernetes manifests (client-side dry-run). Used in CI and locally.
+# Validate Kubernetes manifests without a live cluster (CI and local).
+# - kubectl kustomize: render check (no API server)
+# - kubectl apply --dry-run=client --validate=false: client dry-run without OpenAPI download
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -9,10 +11,16 @@ if ! command -v kubectl >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "== kustomize base =="
-kubectl apply -k deployments/k8s --dry-run=client
+verify_k() {
+  local dir=$1
+  echo "== kustomize build: $dir =="
+  kubectl kustomize "$dir" >/dev/null
 
-echo "== kustomize production overlay =="
-kubectl apply -k deployments/k8s/overlays/production --dry-run=client
+  echo "== kubectl apply dry-run: $dir =="
+  kubectl apply -k "$dir" --dry-run=client --validate=false
+}
 
-echo "k8s manifest dry-run OK"
+verify_k deployments/k8s
+verify_k deployments/k8s/overlays/production
+
+echo "k8s manifest verification OK"

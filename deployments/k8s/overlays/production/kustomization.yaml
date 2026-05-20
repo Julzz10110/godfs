@@ -1,7 +1,7 @@
 # Production overlay: Ingress, observability CRs, resource/affinity/probe tuning, chunk PVC.
 #
 #   kubectl apply -k deployments/k8s/overlays/production
-#   kubectl apply -k deployments/k8s/overlays/production --dry-run=client
+#   bash scripts/k8s_verify_manifests.sh
 #
 # First bootstrap: see docs/K8S_PRODUCTION.md — temporarily enable GODFS_MASTER_BOOTSTRAP on the base
 # StatefulSet or use the lab overlay before switching to this overlay for steady-state.
