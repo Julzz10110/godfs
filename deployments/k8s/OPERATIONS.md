@@ -88,7 +88,7 @@ Steps (lab):
 2. Create dev TLS/auth secrets (self-signed cert + test API key in `godfs-auth`).
 3. `kubectl apply -k deployments/k8s` — wait for 5/5 master Ready and chunk/gateway Ready.
 4. Port-forward `svc/godfs-master 9090:9090`; run `bash scripts/k8s_raft_membership_smoke.sh`.
-5. `kubectl apply -k deployments/k8s/overlays/production --dry-run=client` (or full apply after editing Ingress host).
+5. `bash scripts/k8s_verify_manifests.sh` (or full apply after editing Ingress host).
 6. Confirm PDB: `kubectl get pdb -n godfs`; voluntary eviction of 3 masters at once should be blocked.
 7. Rolling restart one master: `kubectl delete pod godfs-master-2 -n godfs`; verify new leader within minutes (`masters list`).
 8. Document any drift from this table when re-testing on a newer k8s minor.

@@ -12,7 +12,7 @@ kubectl apply -k deployments/k8s
 
 ```bash
 kubectl apply -k deployments/k8s/overlays/production
-bash scripts/k8s_verify_manifests.sh   # dry-run gate
+bash scripts/k8s_verify_manifests.sh   # kustomize + kubeconform gate (no cluster)
 ```
 
 Guide: [`docs/K8S_PRODUCTION.md`](../../docs/K8S_PRODUCTION.md).

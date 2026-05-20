@@ -35,7 +35,7 @@ Before `kubectl apply` in production:
 14. **DR:** snapshot CronJob — `deployments/k8s/dr/README.md`; validate restore on staging.
 15. **Runbook:** [`docs/RUNBOOK.md`](RUNBOOK.md) — leader loss, under-replicated, rebalance.
 16. **Membership:** `AddMaster`/`RemoveMaster` procedure and smoke — [`scripts/k8s_raft_membership_smoke.sh`](../scripts/k8s_raft_membership_smoke.sh).
-17. **Dry-run:** `bash scripts/k8s_verify_manifests.sh` (or CI job `k8s-manifests`).
+17. **Manifest gate:** `bash scripts/k8s_verify_manifests.sh` — `kubectl kustomize` + kubeconform (CI job `k8s-manifests`; no cluster required).
 
 ## First production cluster
 

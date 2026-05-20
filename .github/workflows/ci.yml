@@ -23,7 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Kubernetes manifest dry-run (kustomize production overlay)
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz" | tar xz
+          sudo mv kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+
+      - name: Verify Kubernetes manifests (kustomize + kubeconform, no cluster)
         run: bash scripts/k8s_verify_manifests.sh
 
   lint:

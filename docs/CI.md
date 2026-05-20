@@ -21,7 +21,7 @@
 | `scripts/compose_raft_leader_chaos.sh` + `GODFS_RAFT_CHAOS_QUORUM_BREAK=1` | Kill 2 masters; expect no leader |
 | `scripts/compose_netem_gate.sh` | tc netem ~200ms on chunk; REST smoke |
 | `scripts/bench_e2e_report.sh` | Write `BenchmarkE2E_*` output for bench workflow |
-| `scripts/k8s_verify_manifests.sh` | `kubectl kustomize` + `apply --dry-run=client --validate=false` (base + production overlay) |
+| `scripts/k8s_verify_manifests.sh` | `kubectl kustomize` + kubeconform (base + production overlay; no cluster) |
 | `scripts/k8s_raft_membership_smoke.sh` | `masters list` (+ optional lab add/remove) via port-forward |
 
 ### Raft compose stack
