@@ -6,10 +6,10 @@ Step-by-step setup for your **first production cluster** using only artifacts fr
 
 | Component | Manifest | Role |
 |-----------|----------|------|
-| Namespace `godfs` | `deployments/k8s/namespace.yaml` | Isolation |
-| Master Raft (5 voters) | `master-raft-statefulset.yaml`, `master-raft-services.yaml`, `master-raft-pdb.yaml` | Metadata + quorum |
-| ChunkServer | `chunkserver.yaml` (+ PVC in production overlay) | Data plane |
-| REST gateway | `restgateway.yaml`, `ingress-restgateway.yaml` | HTTP `/v1` for clients |
+| Namespace `godfs` | `deployments/k8s/base/namespace.yaml` | Isolation |
+| Master Raft (5 voters) | `base/master-raft-statefulset.yaml`, `base/master-raft-services.yaml`, `base/master-raft-pdb.yaml` | Metadata + quorum |
+| ChunkServer | `base/chunkserver.yaml` (+ PVC in production overlay) | Data plane |
+| REST gateway | `base/restgateway.yaml`, `ingress-restgateway.yaml` | HTTP `/v1` for clients |
 | Observability | `deployments/observability/*.yaml` | PrometheusRule + ServiceMonitor |
 | DR (optional) | `deployments/k8s/dr/` | Snapshot backup/restore |
 
@@ -63,11 +63,11 @@ kubectl apply -f deployments/k8s/external-secrets/godfs-secretstore-example.yaml
 kubectl apply -f deployments/k8s/external-secrets/godfs-secrets.yaml
 ```
 
-Or create `godfs-tls` and `godfs-auth` in namespace `godfs` using the fields from `master-raft-statefulset.yaml`.
+Or create `godfs-tls` and `godfs-auth` in namespace `godfs` using the fields from `base/master-raft-statefulset.yaml`.
 
 ### 2. Master StatefulSet (initial bootstrap)
 
-**First empty cluster:** apply the **base** kustomize (bootstrap enabled in `master-raft-statefulset.yaml`):
+**First empty cluster:** apply the **base** kustomize (bootstrap enabled in `base/master-raft-statefulset.yaml`):
 
 ```bash
 kubectl apply -k deployments/k8s
@@ -142,7 +142,7 @@ See [`deployments/k8s/dr/README.md`](../deployments/k8s/dr/README.md).
 
 | Path | Purpose |
 |------|---------|
-| `deployments/k8s/` | Baseline (5 masters, bootstrap=1 for first start) |
+| `deployments/k8s/` | Baseline via `base/` (5 masters, bootstrap=1 for first start) |
 | `deployments/k8s/overlays/production/` | Prod: Ingress, SM/rules, chunk PVC, affinity, probes, bootstrap=0 |
 
 ## Helm (alternative)

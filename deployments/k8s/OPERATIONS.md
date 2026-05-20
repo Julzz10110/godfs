@@ -23,7 +23,7 @@ Apply External Secrets (or hand-built `godfs-tls` / `godfs-auth`) **before** wor
 
 ## First bootstrap
 
-1. With a **new** cluster, `GODFS_MASTER_BOOTSTRAP=1` is set in `master-raft-statefulset.yaml` so all peers form one Raft group.
+1. With a **new** cluster, `GODFS_MASTER_BOOTSTRAP=1` is set in `base/master-raft-statefulset.yaml` so all peers form one Raft group.
 2. Wait until a leader is elected (`kubectl logs` / `grpcurl` ListMasters if you have admin access).
 3. **Turn off bootstrap** for every subsequent rollout: set `GODFS_MASTER_BOOTSTRAP` to empty or `0`, then re-apply. Further restarts must use on-disk state under the PVC only.
 

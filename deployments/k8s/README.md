@@ -20,32 +20,32 @@ Guide: [`docs/K8S_PRODUCTION.md`](../../docs/K8S_PRODUCTION.md).
 Or apply manifests in order (single-node example):
 
 ```bash
-kubectl apply -f namespace.yaml
+kubectl apply -f base/namespace.yaml
 kubectl apply -f master.yaml
-kubectl apply -f chunkserver.yaml
-kubectl apply -f restgateway.yaml
+kubectl apply -f base/chunkserver.yaml
+kubectl apply -f base/restgateway.yaml
 ```
 
 ## Raft Masters (5 pods + PVC)
 
-Manifests:
+Manifests under `base/`:
 
 ```bash
-kubectl apply -f namespace.yaml
-kubectl apply -f master-raft-services.yaml
-kubectl apply -f master-raft-pdb.yaml
-kubectl apply -f master-raft-statefulset.yaml
-kubectl apply -f chunkserver.yaml
-kubectl apply -f restgateway.yaml
+kubectl apply -f base/namespace.yaml
+kubectl apply -f base/master-raft-services.yaml
+kubectl apply -f base/master-raft-pdb.yaml
+kubectl apply -f base/master-raft-statefulset.yaml
+kubectl apply -f base/chunkserver.yaml
+kubectl apply -f base/restgateway.yaml
 ```
 
 ### Bootstrap (first start only)
 
-- `master-raft-statefulset.yaml` ships with `GODFS_MASTER_BOOTSTRAP=1` **enabled** to bootstrap an empty cluster.
+- `base/master-raft-statefulset.yaml` ships with `GODFS_MASTER_BOOTSTRAP=1` **enabled** to bootstrap an empty cluster.
 - After the first successful leader election, **disable bootstrap** (set `GODFS_MASTER_BOOTSTRAP` to empty/remove it) and re-apply the manifest:
 
 ```bash
-kubectl apply -f master-raft-statefulset.yaml
+kubectl apply -f base/master-raft-statefulset.yaml
 ```
 
 Subsequent restarts must rely on the persisted Raft state under `GODFS_MASTER_RAFT_DIR` (PVC).

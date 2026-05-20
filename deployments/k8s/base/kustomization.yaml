@@ -1,0 +1,17 @@
+# Core workloads: namespace, Raft masters, chunk, REST gateway.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: godfs
+    includeSelectors: true
+    includeTemplates: true
+
+resources:
+  - namespace.yaml
+  - master-raft-services.yaml
+  - master-raft-pdb.yaml
+  - master-raft-statefulset.yaml
+  - chunkserver.yaml
+  - restgateway.yaml
