@@ -8,7 +8,7 @@
 | `test` | `ci.yml` | unit tests, e2e (incl. Raft failover), FUSE build, `bench_gate.sh` |
 | `observability` | `ci.yml` | M4: promtool + Helm rules sync |
 | `rest-compose` | `ci.yml` | Docker stack, REST smoke, toxiproxy, integration, chunk chaos, **netem** |
-| `raft-compose` | `ci.yml` | 3× master Raft, leader-kill chaos, quorum-break test |
+| `raft-compose` | `ci.yml` | 3× master Raft, bootstrap, leader-kill gRPC smoke, quorum-break |
 | `bench` | `bench.yml` | weekly unit bench + **e2e bench artifact** |
 | `testcontainers` | `ci.yml` | **testcontainers-go** compose up + `/v1/health` (set `GODFS_TESTCONTAINERS=1`, non-blocking) |
 
@@ -23,11 +23,15 @@
 
 ### Raft compose stack
 
-Bootstrap is **single-node then AddMaster** (same as e2e), not a 3-voter cold start:
+CI order: **masters → bootstrap → chunk/rest → chaos** (chunk registers only after Raft leader exists).
+
+Bootstrap is **single-node then AddMaster** (same as e2e), not a 3-voter cold start. Host-run `godfs-client` uses `GODFS_ADVERTISE_ADDR=127.0.0.1:8000` (published port).
 
 ```bash
-docker compose -f deployments/docker/docker-compose.raft.yml up -d --build
+go build -o bin/godfs-client ./cmd/client
+docker compose -f deployments/docker/docker-compose.raft.yml up -d --build master-0 master-1 master-2
 bash scripts/raft_compose_bootstrap.sh
+docker compose -f deployments/docker/docker-compose.raft.yml up -d chunk rest
 bash scripts/compose_raft_leader_chaos.sh
 ```
 
