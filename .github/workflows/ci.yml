@@ -190,6 +190,8 @@ jobs:
       RELEASE_R1_SIZE_MB: "10"
       RELEASE_R2_HEAL_SEC: "300"
       GODFS_NODE_DEAD_AFTER: "5s"
+      GODFS_CHUNK_WAIT_SEC: "180"
+      GODFS_RAFT_LEADER_WAIT_TIMEOUT: "180"
     steps:
       - uses: actions/checkout@v4
 

@@ -66,17 +66,27 @@ go build -o bin/godfs-client ./cmd/client
 "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
 "${COMPOSE[@]}" up -d --build master-0 master-1 master-2
 bash scripts/raft_compose_bootstrap.sh
-"${COMPOSE[@]}" up -d chunk rest
 
-GODFS_MASTER_ADDR="127.0.0.1:9090"
+echo "Starting chunk and REST (masters must not be recreated) ..."
+"${COMPOSE[@]}" up -d --no-recreate chunk rest
+
+echo "Waiting for Raft leader ..."
+GODFS_RAFT_LEADER_WAIT_TIMEOUT="${GODFS_RAFT_LEADER_WAIT_TIMEOUT:-180}" \
+	bash scripts/wait_raft_leader.sh
+
+GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || fail "no Raft leader for client"
 export GODFS_MASTER_ADDR
-wait_chunk_alive "$GODFS_MASTER_ADDR" 120
+echo "Using master gRPC ${GODFS_MASTER_ADDR}"
+
+echo "Waiting for chunk registration ..."
+wait_chunk_alive "$GODFS_MASTER_ADDR" "${GODFS_CHUNK_WAIT_SEC:-180}" \
+	|| fail "chunk did not register"
 
 section "R8 operator CLI"
-godfs_client --master "$GODFS_MASTER_ADDR" nodes list
+godfs_client --master "$GODFS_MASTER_ADDR" nodes
 godfs_client --master "$GODFS_MASTER_ADDR" rebalance-run --steps 3
-if godfs_client --master "$GODFS_MASTER_ADDR" chunks under-replicated; then
-	fail "R8 expected empty under-replicated on healthy cluster"
+if ! godfs_client --master "$GODFS_MASTER_ADDR" chunks under-replicated; then
+	fail "R8 chunks under-replicated check failed (gRPC error)"
 fi
 pass "R8 nodes rebalance under-replicated"
 
@@ -110,7 +120,9 @@ if [[ "$urc" -eq 0 ]]; then
 	fail "R2 expected exit 1 when chunk is down"
 fi
 "${COMPOSE[@]}" start chunk
-wait_chunk_alive "$GODFS_MASTER_ADDR" 120
+GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || fail "no Raft leader during R2 heal"
+export GODFS_MASTER_ADDR
+wait_chunk_alive "$GODFS_MASTER_ADDR" "${GODFS_CHUNK_WAIT_SEC:-180}"
 deadline=$((SECONDS + R2_HEAL_SEC))
 healed=0
 while ((SECONDS < deadline)); do

@@ -1,6 +1,10 @@
 # Shared helpers for Raft docker-compose scripts (source from bash, do not execute directly).
 : "${ROOT:?ROOT must be set}"
 
+# Host-published ports for master-0..2 (see docker-compose.raft.yml).
+RAFT_GRPC_PORTS=(9090 9093 9095)
+RAFT_METRICS_PORTS=(9091 9094 9096)
+
 godfs_client() {
   if [[ -n "${GODFS_CLIENT_BIN:-}" && -x "${GODFS_CLIENT_BIN}" ]]; then
     "${GODFS_CLIENT_BIN}" "$@"
@@ -17,26 +21,45 @@ metrics_is_leader() {
     | grep -qE '^godfs_raft_is_leader (1|1\.0*)( |$)'
 }
 
+# Echo host:port of the current Raft leader (127.0.0.1 + published port).
+raft_leader_grpc_addr() {
+  local idx
+  idx="$(raft_find_leader_index)" || return 1
+  echo "127.0.0.1:${RAFT_GRPC_PORTS[$idx]}"
+}
+
 # Wait until ListChunkNodes reports at least one alive node on the given master gRPC address.
 wait_chunk_alive() {
   local master_grpc="$1"
   local timeout_sec="${2:-120}"
   local deadline=$((SECONDS + timeout_sec))
   while ((SECONDS < deadline)); do
-    if godfs_client --master "$master_grpc" nodes list 2>/dev/null | grep -q $'\talive$'; then
+    if godfs_client --master "$master_grpc" nodes 2>/dev/null | grep -q $'\talive$'; then
       return 0
     fi
     sleep 2
   done
+  echo "no alive chunk node on leader ${master_grpc} within ${timeout_sec}s" >&2
   return 1
 }
 
 # Echo 0..N-1 index of the master that answers masters list as leader; exit 1 if none.
-# Requires GRPC_PORTS and METRICS_PORTS arrays in the caller.
+# Caller may set GRPC_PORTS / METRICS_PORTS; otherwise RAFT_* defaults apply.
 raft_find_leader_index() {
   local i addr out leader
-  for i in "${!GRPC_PORTS[@]}"; do
-    addr="127.0.0.1:${GRPC_PORTS[$i]}"
+  local -a grpc_ports metrics_ports
+  if [[ -v GRPC_PORTS ]]; then
+    grpc_ports=("${GRPC_PORTS[@]}")
+  else
+    grpc_ports=("${RAFT_GRPC_PORTS[@]}")
+  fi
+  if [[ -v METRICS_PORTS ]]; then
+    metrics_ports=("${METRICS_PORTS[@]}")
+  else
+    metrics_ports=("${RAFT_METRICS_PORTS[@]}")
+  fi
+  for i in "${!grpc_ports[@]}"; do
+    addr="127.0.0.1:${grpc_ports[$i]}"
     if out=$(godfs_client --master "$addr" masters list 2>/dev/null); then
       leader=$(grep -m1 '^leader_node_id=' <<<"$out" | cut -d= -f2- | tr -d '\r\n')
       if [[ -n "$leader" ]]; then
@@ -45,8 +68,8 @@ raft_find_leader_index() {
       fi
     fi
   done
-  for i in "${!METRICS_PORTS[@]}"; do
-    if metrics_is_leader "${METRICS_PORTS[$i]}"; then
+  for i in "${!metrics_ports[@]}"; do
+    if metrics_is_leader "${metrics_ports[$i]}"; then
       echo "$i"
       return 0
     fi
