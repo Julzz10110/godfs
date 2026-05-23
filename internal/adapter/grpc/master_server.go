@@ -451,12 +451,12 @@ func (m *MasterServer) ListUnderReplicatedChunks(ctx context.Context, req *godfs
 	for i := range entries {
 		e := entries[i]
 		out = append(out, &godfsv1.UnderReplicatedChunkEntry{
-			ChunkId:            string(e.ChunkID),
-			TargetReplication:  int32(e.TargetReplication),
-			AliveReplicas:      int32(e.AliveReplicas),
-			TotalReplicas:      int32(e.TotalReplicas),
-			SamplePaths:        append([]string(nil), e.SamplePaths...),
-			DeadNodeIds:        append([]string(nil), e.DeadNodeIDs...),
+			ChunkId:           string(e.ChunkID),
+			TargetReplication: int32(e.TargetReplication),
+			AliveReplicas:     int32(e.AliveReplicas),
+			TotalReplicas:     int32(e.TotalReplicas),
+			SamplePaths:       append([]string(nil), e.SamplePaths...),
+			DeadNodeIds:       append([]string(nil), e.DeadNodeIDs...),
 		})
 	}
 	return &godfsv1.ListUnderReplicatedChunksResponse{
@@ -503,4 +503,3 @@ func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
 		Files:             files,
 	}
 }
-

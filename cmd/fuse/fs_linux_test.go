@@ -22,16 +22,23 @@ type stubFUSECLI struct {
 func (s *stubFUSECLI) Stat(context.Context, string) (*client.FileInfo, error) {
 	return &client.FileInfo{Size: 0}, nil
 }
+
 func (s *stubFUSECLI) List(context.Context, string) ([]*godfsv1.DirEntry, error) {
 	return nil, nil
 }
-func (s *stubFUSECLI) Create(context.Context, string) error  { return nil }
-func (s *stubFUSECLI) Mkdir(context.Context, string) error   { return nil }
-func (s *stubFUSECLI) Delete(context.Context, string) error  { return nil }
+
+func (s *stubFUSECLI) Create(context.Context, string) error { return nil }
+
+func (s *stubFUSECLI) Mkdir(context.Context, string) error { return nil }
+
+func (s *stubFUSECLI) Delete(context.Context, string) error { return nil }
+
 func (s *stubFUSECLI) Rename(context.Context, string, string) error { return nil }
+
 func (s *stubFUSECLI) ReadRange(context.Context, string, int64, int64) ([]byte, error) {
 	return make([]byte, 0), nil
 }
+
 func (s *stubFUSECLI) WriteAt(_ context.Context, _ string, off int64, data []byte) error {
 	s.writeCalls = append(s.writeCalls, struct {
 		off  int64
@@ -39,6 +46,7 @@ func (s *stubFUSECLI) WriteAt(_ context.Context, _ string, off int64, data []byt
 	}{off, append([]byte(nil), data...)})
 	return nil
 }
+
 func (s *stubFUSECLI) Truncate(_ context.Context, path string, size int64) error {
 	s.truncPath = path
 	s.truncSize = size
