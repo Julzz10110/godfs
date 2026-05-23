@@ -18,7 +18,7 @@ import (
 type node struct {
 	fs.Inode
 
-	cli        *client.Client
+	cli        fuseCLI
 	cache      *metaPathCache
 	rpcTimeout time.Duration
 
@@ -91,7 +91,13 @@ func (n *node) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) 
 
 func (n *node) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
 	if in.Valid&fuse.FATTR_SIZE != 0 {
-		return syscall.EOPNOTSUPP
+		if n.isDir {
+			return syscall.EISDIR
+		}
+		if errno := n.truncateTo(ctx, f, int64(in.Size)); errno != 0 {
+			return errno
+		}
+		return n.Getattr(ctx, f, out)
 	}
 	if in.Valid&(fuse.FATTR_UID|fuse.FATTR_GID|fuse.FATTR_MODE|fuse.FATTR_KILL_SUIDGID) != 0 {
 		return syscall.EPERM
@@ -150,9 +156,35 @@ func (n *node) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	return fs.NewListDirStream(out), 0
 }
 
+func (n *node) truncateTo(ctx context.Context, f fs.FileHandle, size int64) syscall.Errno {
+	if fh, ok := f.(*fileHandle); ok && fh.buf != nil && !fh.buf.empty() {
+		if errno := fh.flushBuffer(ctx); errno != 0 {
+			return errno
+		}
+	}
+	cctx, cancel := n.opCtx(ctx)
+	defer cancel()
+	if err := n.cli.Truncate(cctx, n.full, size); err != nil {
+		return grpcToErrno(err)
+	}
+	n.size = size
+	if n.cache != nil {
+		n.cache.invalidateMutation(n.full)
+	}
+	return 0
+}
+
 func (n *node) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	if flags&syscall.O_TRUNC != 0 {
-		return nil, 0, syscall.EOPNOTSUPP
+		if errno := n.ensureMeta(ctx); errno != 0 {
+			return nil, 0, errno
+		}
+		if n.isDir {
+			return nil, 0, syscall.EISDIR
+		}
+		if errno := n.truncateTo(ctx, nil, 0); errno != 0 {
+			return nil, 0, errno
+		}
 	}
 	if errno := n.ensureMeta(ctx); errno != 0 {
 		return nil, 0, errno
@@ -161,15 +193,16 @@ func (n *node) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, s
 		return nil, 0, syscall.EISDIR
 	}
 	writeable := flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0
-	return &fileHandle{n: n, writeable: writeable}, 0, 0
+	fh := &fileHandle{n: n, writeable: writeable}
+	if writeable {
+		fh.buf = &fuseWriteBuffer{}
+	}
+	return fh, 0, 0
 }
 
 func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
 	if name == "." || name == ".." || strings.Contains(name, "/") || name == "" {
 		return nil, nil, 0, syscall.EINVAL
-	}
-	if flags&syscall.O_TRUNC != 0 {
-		return nil, nil, 0, syscall.EOPNOTSUPP
 	}
 	full := path.Join(n.full, name)
 	cctx, cancel := n.opCtx(ctx)
@@ -196,7 +229,12 @@ func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint3
 	out.Mtime = uint64(child.mtime.Unix())
 	out.Ctime = uint64(child.ctime.Unix())
 	out.Atime = out.Mtime
-	fh := &fileHandle{n: child, writeable: true}
+	fh := &fileHandle{n: child, writeable: true, buf: &fuseWriteBuffer{}}
+	if flags&syscall.O_TRUNC != 0 {
+		if errno := child.truncateTo(ctx, fh, 0); errno != 0 {
+			return nil, nil, 0, errno
+		}
+	}
 	return ch, fh, 0, 0
 }
 
@@ -324,6 +362,7 @@ func renameTargetNode(newParent fs.InodeEmbedder) *node {
 type fileHandle struct {
 	n         *node
 	writeable bool
+	buf       *fuseWriteBuffer
 }
 
 func (f *fileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
@@ -339,6 +378,7 @@ func (f *fileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.Rea
 	if err != nil {
 		return nil, grpcToErrno(err)
 	}
+	overlayBuffered(data, off, f.buf)
 	return fuse.ReadResultData(data), 0
 }
 
@@ -352,6 +392,14 @@ func (f *fileHandle) Write(ctx context.Context, data []byte, off int64) (uint32,
 	if len(data) == 0 {
 		return 0, 0
 	}
+	if f.buf != nil {
+		f.buf.write(off, data)
+		end := off + int64(len(data))
+		if end > f.n.size {
+			f.n.size = end
+		}
+		return uint32(len(data)), 0
+	}
 	cctx, cancel := f.n.opCtx(ctx)
 	defer cancel()
 	if err := f.n.cli.WriteAt(cctx, f.n.full, off, data); err != nil {
@@ -363,7 +411,25 @@ func (f *fileHandle) Write(ctx context.Context, data []byte, off int64) (uint32,
 	return uint32(len(data)), 0
 }
 
+func (f *fileHandle) flushBuffer(ctx context.Context) syscall.Errno {
+	if f.buf == nil || f.buf.empty() {
+		return 0
+	}
+	cctx, cancel := f.n.opCtx(ctx)
+	defer cancel()
+	if err := f.buf.flush(cctx, f.n.full, f.n.cli.WriteAt); err != nil {
+		return grpcToErrno(err)
+	}
+	if f.n.cache != nil {
+		f.n.cache.invalidateMutation(f.n.full)
+	}
+	return 0
+}
+
 func (f *fileHandle) Flush(ctx context.Context) syscall.Errno {
+	if errno := f.flushBuffer(ctx); errno != 0 {
+		return errno
+	}
 	if f.n.cache != nil {
 		f.n.cache.invalidatePath(f.n.full)
 	}
@@ -371,6 +437,9 @@ func (f *fileHandle) Flush(ctx context.Context) syscall.Errno {
 }
 
 func (f *fileHandle) Release(ctx context.Context) syscall.Errno {
+	if errno := f.flushBuffer(ctx); errno != 0 {
+		return errno
+	}
 	if f.n.cache != nil {
 		f.n.cache.invalidatePath(f.n.full)
 	}

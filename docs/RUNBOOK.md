@@ -211,14 +211,25 @@ Constraints and recommendations:
 - Metrics: `GODFS_METRICS_LISTEN` — same `godfs_rest_*` counters as other binaries.
 - Defaults: **`GODFS_REST_READ_TIMEOUT` / `GODFS_REST_WRITE_TIMEOUT` = 15m**; **`0`** / **`off`** disable them (in `deployments/docker/docker-compose.yml` the `rest` service sets **`0`** so smoke tests are not bounded).
 - Docker Compose: `deployments/docker/docker-compose.yml` — services `master` (**`GODFS_REPLICATION=1`** for a single chunk), `chunk`, **`rest`** (image `Dockerfile.restgateway`). Smoke: **`bash scripts/rest_compose_smoke.sh`** (**`python3`** required on the host).
-- Operator CLI: **`godfs-client nodes`** — registered chunk nodes and liveness (RPC `ListChunkNodes`, needs **admin** in RBAC when auth is on); **`godfs-client masters list|add|remove`**, **`godfs-client snapshot …`**, **`godfs-client rebalance-run [--steps N]`** (admin, RPC `RunRebalanceNow`).
+- Operator CLI: **`godfs-client nodes`** — registered chunk nodes and liveness (RPC `ListChunkNodes`, needs **admin** in RBAC when auth is on); **`godfs-client chunks under-replicated [--json]`** — list chunks below replication factor (admin, exit **1** if any); **`godfs-client masters list|add|remove`**, **`godfs-client snapshot …`**, **`godfs-client rebalance-run [--steps N]`** (admin, RPC `RunRebalanceNow`).
 
 ## FUSE (`cmd/fuse`, Linux only)
 
 - Semantics, flags, environment: **`docs/EXTERNAL_ACCESS.md`** §3.
 - Same **`GODFS_TLS_*`** / **`GODFS_CLIENT_API_KEY`** as the CLI when the cluster uses TLS and keys.
 - Unmount: `fusermount3 -u <mountpoint>` (or `umount`).
-- Limits: no **truncate** / **`O_TRUNC`** in metadata (`EOPNOTSUPP`); **chmod/chown** → **`EPERM`**.
+- **Writes** are buffered until `Flush`/`Release` (fewer chunk RPCs for typical editors).
+- **Truncate** / **`O_TRUNC`** / `Setattr` size use Master RPC **`TruncateFile`**.
+- **chmod/chown** → **`EPERM`**.
+
+### When to use FUSE vs REST
+
+| Use FUSE | Use REST / SDK |
+|----------|----------------|
+| Interactive Linux tools (`cp`, `rsync`, editors, `find`) | Automation, CI, cross-platform clients |
+| POSIX mount at a path | Browsers, CDN, presigned GET/PUT |
+| Buffered local writes with flush semantics | Large streaming uploads with one HTTP session |
+| Same Bearer/mTLS as CLI on the FUSE process | Per-request `Authorization` on REST |
 
 ## Security
 

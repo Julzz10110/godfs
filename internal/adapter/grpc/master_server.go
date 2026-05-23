@@ -3,8 +3,6 @@ package grpc
 import (
 	"context"
 	"errors"
-	"fmt"
-	"path"
 	"time"
 
 	"google.golang.org/grpc"
@@ -86,12 +84,7 @@ func (m *MasterServer) RegisterNode(ctx context.Context, req *godfsv1.RegisterNo
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	err := m.Store.RegisterNode(ctx, domain.ChunkNode{
-		ID:            domain.NodeID(req.NodeId),
-		GRPCAddress:   req.GrpcAddress,
-		CapacityBytes: req.CapacityBytes,
-	})
-	if err != nil {
+	if err := usecase.RegisterNode(ctx, m.Store, req.GetNodeId(), req.GetGrpcAddress(), req.GetCapacityBytes()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.RegisterNodeResponse{}, nil
@@ -101,7 +94,7 @@ func (m *MasterServer) CreateFile(ctx context.Context, req *godfsv1.CreateFileRe
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	id, err := m.Store.CreateFile(ctx, req.Path)
+	id, err := usecase.CreateFile(ctx, m.Store, req.GetPath())
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -112,7 +105,7 @@ func (m *MasterServer) Mkdir(ctx context.Context, req *godfsv1.MkdirRequest) (*g
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := m.Store.Mkdir(ctx, req.Path); err != nil {
+	if err := usecase.Mkdir(ctx, m.Store, req.GetPath()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.MkdirResponse{}, nil
@@ -122,7 +115,7 @@ func (m *MasterServer) Delete(ctx context.Context, req *godfsv1.DeleteRequest) (
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	chunks, err := m.Store.Delete(ctx, req.Path)
+	chunks, err := usecase.DeleteFile(ctx, m.Store, req.Path)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -140,7 +133,7 @@ func (m *MasterServer) RestoreFile(ctx context.Context, req *godfsv1.RestoreFile
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := m.Store.RestoreFile(ctx, req.GetPath()); err != nil {
+	if err := usecase.RestoreFile(ctx, m.Store, req.GetPath()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.RestoreFileResponse{}, nil
@@ -181,52 +174,65 @@ func deleteChunkOnce(ctx context.Context, addr, chunkID string) error {
 	return err
 }
 
+func (m *MasterServer) TruncateFile(ctx context.Context, req *godfsv1.TruncateFileRequest) (*godfsv1.TruncateFileResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	chunks, err := usecase.TruncateFile(ctx, m.Store, req.GetPath(), req.GetSize())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	for _, ch := range chunks {
+		for _, addr := range ch.Replicas {
+			if err := deleteChunkOnPeer(ctx, addr, string(ch.ChunkID)); err != nil {
+				return nil, status.Errorf(codes.Internal, "delete chunk %s on %s: %v", ch.ChunkID, addr, err)
+			}
+		}
+	}
+	return &godfsv1.TruncateFileResponse{}, nil
+}
+
 func (m *MasterServer) Rename(ctx context.Context, req *godfsv1.RenameRequest) (*godfsv1.RenameResponse, error) {
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := m.Store.Rename(ctx, req.OldPath, req.NewPath); err != nil {
+	if err := usecase.Rename(ctx, m.Store, req.GetOldPath(), req.GetNewPath()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.RenameResponse{}, nil
 }
 
 func (m *MasterServer) Stat(ctx context.Context, req *godfsv1.StatRequest) (*godfsv1.StatResponse, error) {
-	isDir, sz, cr, mod, mode, err := m.Store.Stat(ctx, req.Path)
+	info, err := usecase.Stat(ctx, m.Store, req.GetPath())
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.StatResponse{
-		IsDir:          isDir,
-		Size:           sz,
-		CreatedAtUnix:  cr.Unix(),
-		ModifiedAtUnix: mod.Unix(),
-		Mode:           mode,
+		IsDir:          info.IsDir,
+		Size:           info.Size,
+		CreatedAtUnix:  info.Created.Unix(),
+		ModifiedAtUnix: info.Modified.Unix(),
+		Mode:           info.Mode,
 	}, nil
 }
 
 func (m *MasterServer) ListDir(ctx context.Context, req *godfsv1.ListDirRequest) (*godfsv1.ListDirResponse, error) {
-	names, _, err := m.Store.ListDir(ctx, req.Path)
+	entries, err := usecase.ListDir(ctx, m.Store, req.GetPath())
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	var entries []*godfsv1.DirEntry
-	for _, n := range names {
-		full := path.Join(req.Path, n)
-		isDir, sz, _, _, _, err := m.Store.Stat(ctx, full)
-		if err != nil {
-			continue
-		}
-		entries = append(entries, &godfsv1.DirEntry{Name: n, IsDir: isDir, Size: sz})
+	out := make([]*godfsv1.DirEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, &godfsv1.DirEntry{Name: e.Name, IsDir: e.IsDir, Size: e.Size})
 	}
-	return &godfsv1.ListDirResponse{Entries: entries}, nil
+	return &godfsv1.ListDirResponse{Entries: out}, nil
 }
 
 func (m *MasterServer) PrepareWrite(ctx context.Context, req *godfsv1.PrepareWriteRequest) (*godfsv1.PrepareWriteResponse, error) {
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	cid, addr, sec, primaryID, lease, idx, off, csize, ver, err := m.Store.PrepareWrite(ctx, req.Path, req.Offset, req.Length)
+	cid, addr, sec, primaryID, lease, idx, off, csize, ver, err := usecase.PrepareWrite(ctx, m.Store, req.Path, req.Offset, req.Length)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -247,21 +253,21 @@ func (m *MasterServer) CommitChunk(ctx context.Context, req *godfsv1.CommitChunk
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	err := m.Store.CommitChunk(ctx, req.Path, domain.ChunkID(req.ChunkId), req.ChunkIndex, req.ChunkOffset, req.Written, req.ChecksumSha256, req.Version)
-	if err != nil {
+	if err := usecase.CommitChunk(ctx, m.Store, req.GetPath(), domain.ChunkID(req.GetChunkId()),
+		req.GetChunkIndex(), req.GetChunkOffset(), req.GetWritten(), req.GetChecksumSha256(), req.GetVersion()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.CommitChunkResponse{}, nil
 }
 
 func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChunkForReadRequest) (*godfsv1.GetChunkForReadResponse, error) {
-	cid, locs, off, avail, ver, cksum, err := m.Store.GetChunkForRead(ctx, req.Path, req.Offset)
+	plan, err := usecase.GetChunkForRead(ctx, m.Store, req.GetPath(), req.GetOffset())
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	addrs := make([]string, len(locs))
-	protoLocs := make([]*godfsv1.ReplicaLocation, len(locs))
-	for i, r := range locs {
+	addrs := make([]string, len(plan.ReplicaLocs))
+	protoLocs := make([]*godfsv1.ReplicaLocation, len(plan.ReplicaLocs))
+	for i, r := range plan.ReplicaLocs {
 		addrs[i] = r.Address
 		protoLocs[i] = &godfsv1.ReplicaLocation{
 			NodeId:      string(r.NodeID),
@@ -269,13 +275,13 @@ func (m *MasterServer) GetChunkForRead(ctx context.Context, req *godfsv1.GetChun
 		}
 	}
 	return &godfsv1.GetChunkForReadResponse{
-		ChunkId:             string(cid),
+		ChunkId:             string(plan.ChunkID),
 		ReplicaAddresses:    addrs,
 		ReplicaLocations:    protoLocs,
-		ChunkOffset:         off,
-		AvailableInChunk:    avail,
-		Version:             ver,
-		ChunkChecksumSha256: cksum,
+		ChunkOffset:         plan.ChunkOffset,
+		AvailableInChunk:    plan.Available,
+		Version:             plan.Version,
+		ChunkChecksumSha256: plan.Checksum,
 	}, nil
 }
 
@@ -283,7 +289,7 @@ func (m *MasterServer) Heartbeat(ctx context.Context, req *godfsv1.HeartbeatRequ
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := m.Store.Heartbeat(ctx, domain.NodeID(req.NodeId), req.CapacityBytes, req.UsedBytes); err != nil {
+	if err := usecase.Heartbeat(ctx, m.Store, req.GetNodeId(), req.GetCapacityBytes(), req.GetUsedBytes()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.HeartbeatResponse{ServerTimeUnix: time.Now().UTC().Unix()}, nil
@@ -301,7 +307,7 @@ func (m *MasterServer) CreateSnapshot(ctx context.Context, req *godfsv1.CreateSn
 }
 
 func (m *MasterServer) ListSnapshots(ctx context.Context, _ *godfsv1.ListSnapshotsRequest) (*godfsv1.ListSnapshotsResponse, error) {
-	entries, err := m.Store.ListSnapshots(ctx)
+	entries, err := usecase.ListSnapshots(ctx, m.Store)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -318,7 +324,7 @@ func (m *MasterServer) ListSnapshots(ctx context.Context, _ *godfsv1.ListSnapsho
 }
 
 func (m *MasterServer) GetSnapshot(ctx context.Context, req *godfsv1.GetSnapshotRequest) (*godfsv1.GetSnapshotResponse, error) {
-	sn, err := m.Store.GetSnapshot(ctx, req.GetSnapshotId())
+	sn, err := usecase.GetSnapshot(ctx, m.Store, req.GetSnapshotId())
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -329,7 +335,7 @@ func (m *MasterServer) DeleteSnapshot(ctx context.Context, req *godfsv1.DeleteSn
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	if err := m.Store.DeleteSnapshot(ctx, req.GetSnapshotId()); err != nil {
+	if err := usecase.DeleteSnapshot(ctx, m.Store, req.GetSnapshotId()); err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.DeleteSnapshotResponse{}, nil
@@ -339,11 +345,10 @@ func (m *MasterServer) RestoreSnapshot(ctx context.Context, req *godfsv1.Restore
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	man, err := backupSnapshotFromProto(req.GetManifest())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if err := m.Store.RestoreSnapshot(ctx, man, req.GetForce()); err != nil {
+	if err := usecase.RestoreSnapshot(ctx, m.Store, req.GetManifest(), req.GetForce()); err != nil {
+		if errors.Is(err, usecase.ErrManifestRequired) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
 		return nil, mapErr(err)
 	}
 	return &godfsv1.RestoreSnapshotResponse{}, nil
@@ -403,7 +408,7 @@ func (m *MasterServer) RemoveMaster(ctx context.Context, req *godfsv1.RemoveMast
 }
 
 func (m *MasterServer) ListChunkNodes(ctx context.Context, _ *godfsv1.ListChunkNodesRequest) (*godfsv1.ListChunkNodesResponse, error) {
-	entries, err := m.Store.ListChunkNodes(ctx)
+	entries, err := usecase.ListChunkNodes(ctx, m.Store)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -426,12 +431,38 @@ func (m *MasterServer) RunRebalanceNow(ctx context.Context, req *godfsv1.RunReba
 	if err := m.ensureLeader(); err != nil {
 		return nil, err
 	}
-	n := int(req.GetMaxSteps())
-	ex, err := m.Store.RunRebalanceSteps(ctx, n)
+	ex, err := usecase.RunRebalanceNow(ctx, m.Store, int(req.GetMaxSteps()))
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return &godfsv1.RunRebalanceNowResponse{Executed: int32(ex)}, nil
+}
+
+func (m *MasterServer) ListUnderReplicatedChunks(ctx context.Context, req *godfsv1.ListUnderReplicatedChunksRequest) (*godfsv1.ListUnderReplicatedChunksResponse, error) {
+	if err := m.ensureLeader(); err != nil {
+		return nil, err
+	}
+	limit := int(req.GetLimit())
+	entries, total, err := usecase.ListUnderReplicatedChunks(ctx, m.Store, limit)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]*godfsv1.UnderReplicatedChunkEntry, 0, len(entries))
+	for i := range entries {
+		e := entries[i]
+		out = append(out, &godfsv1.UnderReplicatedChunkEntry{
+			ChunkId:            string(e.ChunkID),
+			TargetReplication:  int32(e.TargetReplication),
+			AliveReplicas:      int32(e.AliveReplicas),
+			TotalReplicas:      int32(e.TotalReplicas),
+			SamplePaths:        append([]string(nil), e.SamplePaths...),
+			DeadNodeIds:        append([]string(nil), e.DeadNodeIDs...),
+		})
+	}
+	return &godfsv1.ListUnderReplicatedChunksResponse{
+		Chunks:     out,
+		TotalCount: int32(total),
+	}, nil
 }
 
 func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
@@ -473,51 +504,3 @@ func backupSnapshotToProto(m *domain.BackupSnapshot) *godfsv1.BackupManifest {
 	}
 }
 
-func backupSnapshotFromProto(m *godfsv1.BackupManifest) (*domain.BackupSnapshot, error) {
-	if m == nil {
-		return nil, fmt.Errorf("manifest required")
-	}
-	out := &domain.BackupSnapshot{
-		ID:                m.GetSnapshotId(),
-		Label:             m.GetLabel(),
-		CreatedAt:         time.Unix(m.GetCreatedAtUnix(), 0).UTC(),
-		ChunkSize:         m.GetChunkSizeBytes(),
-		ReplicationFactor: int(m.GetReplicationFactor()),
-	}
-	for _, f := range m.GetFiles() {
-		if f == nil {
-			continue
-		}
-		fe := domain.BackupFileEntry{
-			Path:       f.GetPath(),
-			Size:       f.GetSize(),
-			Mode:       f.GetMode(),
-			CreatedAt:  time.Unix(f.GetCreatedAtUnix(), 0).UTC(),
-			ModifiedAt: time.Unix(f.GetModifiedAtUnix(), 0).UTC(),
-		}
-		for _, c := range f.GetChunks() {
-			if c == nil {
-				continue
-			}
-			reps := make([]domain.ChunkReplica, 0, len(c.GetReplicas()))
-			for _, r := range c.GetReplicas() {
-				if r == nil {
-					continue
-				}
-				reps = append(reps, domain.ChunkReplica{
-					NodeID:  domain.NodeID(r.GetNodeId()),
-					Address: r.GetGrpcAddress(),
-				})
-			}
-			fe.Chunks = append(fe.Chunks, domain.BackupChunkRef{
-				ChunkID:    domain.ChunkID(c.GetChunkId()),
-				ChunkIndex: c.GetChunkIndex(),
-				Version:    c.GetVersion(),
-				Checksum:   append([]byte(nil), c.GetChecksumSha256()...),
-				Replicas:   reps,
-			})
-		}
-		out.Files = append(out.Files, fe)
-	}
-	return out, nil
-}

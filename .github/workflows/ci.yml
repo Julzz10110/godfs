@@ -72,6 +72,9 @@ jobs:
       - name: Build FUSE (Linux)
         run: go build -o /tmp/godfs-fuse ./cmd/fuse
 
+      - name: Test FUSE (Linux)
+        run: go test ./cmd/fuse/... -count=1 -timeout=2m
+
       - name: Client micro-benchmark gate (ns/op)
         run: bash scripts/bench_gate.sh
 

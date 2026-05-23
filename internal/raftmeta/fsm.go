@@ -91,6 +91,20 @@ func (f *FSM) Apply(l *raft.Log) any {
 		}
 		return infos
 
+	case cmdTruncateFile:
+		var req struct {
+			Path string
+			Size int64
+		}
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			return err
+		}
+		infos, err := f.st.TruncateFile(req.Path, req.Size)
+		if err != nil {
+			return err
+		}
+		return infos
+
 	case cmdRestoreFile:
 		var req struct {
 			Path   string

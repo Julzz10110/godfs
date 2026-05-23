@@ -116,6 +116,8 @@ func PermFromMethod(fullMethod string) Perm {
 		return PermWrite
 	case "/godfs.v1.MasterService/Delete":
 		return PermDelete
+	case "/godfs.v1.MasterService/TruncateFile":
+		return PermWrite
 	case "/godfs.v1.MasterService/Rename":
 		return PermWrite // two paths checked separately
 	case "/godfs.v1.MasterService/Stat", "/godfs.v1.MasterService/ListDir",
@@ -128,7 +130,8 @@ func PermFromMethod(fullMethod string) Perm {
 		return PermAdmin
 	case "/godfs.v1.MasterService/ListMasters", "/godfs.v1.MasterService/AddMaster", "/godfs.v1.MasterService/RemoveMaster":
 		return PermAdmin
-	case "/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow":
+	case "/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow",
+		"/godfs.v1.MasterService/ListUnderReplicatedChunks":
 		return PermAdmin
 	default:
 		return PermAdmin

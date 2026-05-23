@@ -777,7 +777,16 @@ func (s *Store) GetChunkForRead(_ context.Context, fpath string, offset int64) (
 	}
 	cid := fr.chunks[idx]
 	if cid == "" {
-		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
+		chunkStart := idx * s.chunkSize
+		bytesInFileFromChunk := fr.size - chunkStart
+		if bytesInFileFromChunk > s.chunkSize {
+			bytesInFileFromChunk = s.chunkSize
+		}
+		avail := bytesInFileFromChunk - chunkOff
+		if avail < 0 {
+			avail = 0
+		}
+		return "", nil, chunkOff, avail, 0, nil, nil
 	}
 	cr, ok := s.chunks[cid]
 	if !ok {

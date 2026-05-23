@@ -12,6 +12,8 @@ service MasterService {
   // Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
   rpc RestoreFile(RestoreFileRequest) returns (RestoreFileResponse);
   rpc Rename(RenameRequest) returns (RenameResponse);
+  // Truncate or extend a file to size bytes (sparse extend; shrink drops trailing chunks).
+  rpc TruncateFile(TruncateFileRequest) returns (TruncateFileResponse);
   rpc Stat(StatRequest) returns (StatResponse);
   rpc ListDir(ListDirRequest) returns (ListDirResponse);
   rpc PrepareWrite(PrepareWriteRequest) returns (PrepareWriteResponse);
@@ -33,6 +35,8 @@ service MasterService {
   rpc ListChunkNodes(ListChunkNodesRequest) returns (ListChunkNodesResponse);
   // Leader-only: run up to max_steps rebalance plan+execute iterations (admin).
   rpc RunRebalanceNow(RunRebalanceNowRequest) returns (RunRebalanceNowResponse);
+  // Chunks with fewer live replicas than replication factor (admin-only diagnostic).
+  rpc ListUnderReplicatedChunks(ListUnderReplicatedChunksRequest) returns (ListUnderReplicatedChunksResponse);
 }
 
 message RegisterNodeRequest {
@@ -75,6 +79,13 @@ message RenameRequest {
 }
 
 message RenameResponse {}
+
+message TruncateFileRequest {
+  string path = 1;
+  int64 size = 2;
+}
+
+message TruncateFileResponse {}
 
 message StatRequest {
   string path = 1;
@@ -279,6 +290,25 @@ message RunRebalanceNowRequest {
 
 message RunRebalanceNowResponse {
   int32 executed = 1;
+}
+
+message ListUnderReplicatedChunksRequest {
+  // Max entries returned (0 = no limit).
+  int32 limit = 1;
+}
+
+message UnderReplicatedChunkEntry {
+  string chunk_id = 1;
+  int32 target_replication = 2;
+  int32 alive_replicas = 3;
+  int32 total_replicas = 4;
+  repeated string sample_paths = 5;
+  repeated string dead_node_ids = 6;
+}
+
+message ListUnderReplicatedChunksResponse {
+  repeated UnderReplicatedChunkEntry chunks = 1;
+  int32 total_count = 2;
 }
 
 message ChunkNodeEntry {

@@ -5,7 +5,7 @@
 | Job | Workflow | Purpose |
 |-----|----------|---------|
 | `lint` | `ci.yml` | golangci-lint (`errcheck`, `gofumpt`, …) |
-| `test` | `ci.yml` | unit tests, e2e (incl. Raft failover), FUSE build, `bench_gate.sh` |
+| `test` | `ci.yml` | unit tests, e2e (incl. Raft failover), FUSE build + `go test ./cmd/fuse`, `bench_gate.sh` |
 | `observability` | `ci.yml` | M4: promtool + Helm rules sync |
 | `k8s-manifests` | `ci.yml` | M6: `k8s_verify_manifests.sh` (kustomize build + client dry-run, no cluster) |
 | `rest-compose` | `ci.yml` | Docker stack, REST smoke, toxiproxy, integration, chunk chaos, **netem** |

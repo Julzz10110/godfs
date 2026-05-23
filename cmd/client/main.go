@@ -22,8 +22,9 @@ func main() {
 
 	args := pflag.Args()
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: godfs-client [--master addr] <command> [args]")
+		fmt.Fprintln(os.Stderr, "usage: godfs-client [--master addr] [--api-key key] <command> [args]")
 		fmt.Fprintln(os.Stderr, "commands: mkdir create write read rm mv ls stat snapshot masters nodes rebalance-run")
+		fmt.Fprintln(os.Stderr, "         chunks under-replicated [--json]  (admin; exit 1 if any under-replicated)")
 		os.Exit(2)
 	}
 
@@ -215,6 +216,46 @@ func main() {
 			}
 			fmt.Printf("%s\t%s\tcap=%d\tused=%d\tlast_seen=%d\t%s\n",
 				n.GetNodeId(), n.GetGrpcAddress(), n.GetCapacityBytes(), n.GetUsedBytes(), n.GetLastSeenUnix(), a)
+		}
+	case "chunks":
+		if len(args) < 2 || args[1] != "under-replicated" {
+			log.Fatal("chunks under-replicated [--json]")
+		}
+		jsonOut := false
+		switch len(args) {
+		case 2:
+		case 3:
+			if args[2] != "--json" {
+				log.Fatal("chunks under-replicated [--json]")
+			}
+			jsonOut = true
+		default:
+			log.Fatal("chunks under-replicated [--json]")
+		}
+		var entries []*godfsv1.UnderReplicatedChunkEntry
+		var total int32
+		entries, total, err = c.ListUnderReplicatedChunks(ctx, 0)
+		if err != nil {
+			break
+		}
+		if jsonOut {
+			resp := &godfsv1.ListUnderReplicatedChunksResponse{Chunks: entries, TotalCount: total}
+			b, merr := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp)
+			if merr != nil {
+				err = merr
+				break
+			}
+			fmt.Println(string(b))
+		} else {
+			fmt.Printf("total_count=%d\n", total)
+			for _, e := range entries {
+				fmt.Printf("%s\talive=%d/%d\tdead_nodes=%v\tpaths=%v\n",
+					e.GetChunkId(), e.GetAliveReplicas(), e.GetTargetReplication(),
+					e.GetDeadNodeIds(), e.GetSamplePaths())
+			}
+		}
+		if total > 0 {
+			os.Exit(1)
 		}
 	case "masters":
 		if len(args) < 2 {

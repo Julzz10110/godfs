@@ -92,6 +92,10 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 		if r, ok := req.(*godfsv1.RenameRequest); ok {
 			return "", r.OldPath, r.NewPath
 		}
+	case "/godfs.v1.MasterService/TruncateFile":
+		if r, ok := req.(*godfsv1.TruncateFileRequest); ok {
+			return r.Path, "", ""
+		}
 	case "/godfs.v1.MasterService/Stat":
 		if r, ok := req.(*godfsv1.StatRequest); ok {
 			return r.Path, "", ""
@@ -114,7 +118,8 @@ func masterPaths(fullMethod string, req interface{}) (path, oldPath, newPath str
 		}
 	case "/godfs.v1.MasterService/CreateSnapshot", "/godfs.v1.MasterService/ListSnapshots",
 		"/godfs.v1.MasterService/GetSnapshot", "/godfs.v1.MasterService/DeleteSnapshot",
-		"/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow":
+		"/godfs.v1.MasterService/ListChunkNodes", "/godfs.v1.MasterService/RunRebalanceNow",
+		"/godfs.v1.MasterService/ListUnderReplicatedChunks":
 		return "/", "", ""
 	}
 	return "/", "", ""

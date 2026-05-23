@@ -86,12 +86,15 @@ Minimum: `Getattr`, `Lookup`, `ReadDir`, `Create`, `Mkdir`, `Unlink`, `Rmdir`, `
 
 Writes follow the same path as the SDK: PrepareWrite → chunk gRPC → CommitChunk; reads: GetChunkForRead → ReadChunk stream.
 
-**Setattr:** shrinking size (**`FATTR_SIZE`**) and **`O_TRUNC`** on open are not supported by the backend → **`EOPNOTSUPP`**. Owner/mode changes (**uid/gid/mode**) → **`EPERM`**. **atime/mtime-only** updates are accepted without RPC (server-side attributes are unchanged).
+**Setattr:** shrinking/extending size (**`FATTR_SIZE`**) uses `TruncateFile`. Owner/mode changes (**uid/gid/mode**) → **`EPERM`**. **atime/mtime-only** updates are accepted without RPC (server-side attributes are unchanged).
 
 ### 3.3. Limitations
 
 - **Linux** only (or macOS with macFUSE — out of scope for the first iteration).
 - **Windows:** WinFsp plus a separate layer, or rely on REST/WebDAV later.
+- **Write path:** writes are buffered in the FUSE process until `Flush`/`Release`, then sent as `WriteAt` (fewer RPCs for editors that flush often). Unflushed data is visible to reads on the same open file handle.
+- **Truncate / `O_TRUNC`:** supported via Master RPC `TruncateFile` (`Setattr` size, `O_TRUNC` on open/create). Sparse extend (size &gt; current without writing) returns zero-filled reads.
+- **When to use FUSE vs REST:** FUSE for interactive POSIX tools on Linux (`cp`, editors, `find`); REST for automation, browsers/CDN (presigned URLs), and cross-platform clients. See [`docs/RUNBOOK.md`](RUNBOOK.md) for operations.
 
 ### 3.4. Rollout order
 

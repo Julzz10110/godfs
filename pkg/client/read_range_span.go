@@ -53,6 +53,12 @@ func (c *Client) readRangeSpan(ctx context.Context, path string, start, endExclu
 			reps = gr.ReplicaAddresses
 		}
 		if len(reps) == 0 {
+			if gr.ChunkId == "" && want > 0 {
+				// Sparse hole (truncate extend without written data).
+				dstOff += want
+				fileOff += want
+				continue
+			}
 			return nil, fmt.Errorf("no replicas")
 		}
 

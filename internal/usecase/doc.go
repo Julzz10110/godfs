@@ -1,3 +1,3 @@
-// Package usecase is reserved for application orchestration (use cases) on top of domain + ports.
-// Orchestration may live in gRPC handlers initially and move here as behaviors grow.
+// Package usecase is application orchestration on top of domain + ports.
+// Master gRPC handlers delegate validation and orchestration here; adapters map domain errors to gRPC status.
 package usecase

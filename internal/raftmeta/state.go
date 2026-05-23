@@ -622,7 +622,16 @@ func (s *State) GetChunkForRead(path string, offset int64) (
 	}
 	cid := fr.Chunks[idx]
 	if cid == "" {
-		return "", nil, 0, 0, 0, nil, domain.ErrNotFound
+		chunkStart := idx * s.ChunkSize
+		bytesInFileFromChunk := fr.Size - chunkStart
+		if bytesInFileFromChunk > s.ChunkSize {
+			bytesInFileFromChunk = s.ChunkSize
+		}
+		avail := bytesInFileFromChunk - chunkOff
+		if avail < 0 {
+			avail = 0
+		}
+		return "", nil, chunkOff, avail, 0, nil, nil
 	}
 	cr, ok := s.Chunks[cid]
 	if !ok {

@@ -19,28 +19,30 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MasterService_RegisterNode_FullMethodName    = "/godfs.v1.MasterService/RegisterNode"
-	MasterService_CreateFile_FullMethodName      = "/godfs.v1.MasterService/CreateFile"
-	MasterService_Mkdir_FullMethodName           = "/godfs.v1.MasterService/Mkdir"
-	MasterService_Delete_FullMethodName          = "/godfs.v1.MasterService/Delete"
-	MasterService_RestoreFile_FullMethodName     = "/godfs.v1.MasterService/RestoreFile"
-	MasterService_Rename_FullMethodName          = "/godfs.v1.MasterService/Rename"
-	MasterService_Stat_FullMethodName            = "/godfs.v1.MasterService/Stat"
-	MasterService_ListDir_FullMethodName         = "/godfs.v1.MasterService/ListDir"
-	MasterService_PrepareWrite_FullMethodName    = "/godfs.v1.MasterService/PrepareWrite"
-	MasterService_CommitChunk_FullMethodName     = "/godfs.v1.MasterService/CommitChunk"
-	MasterService_GetChunkForRead_FullMethodName = "/godfs.v1.MasterService/GetChunkForRead"
-	MasterService_Heartbeat_FullMethodName       = "/godfs.v1.MasterService/Heartbeat"
-	MasterService_CreateSnapshot_FullMethodName  = "/godfs.v1.MasterService/CreateSnapshot"
-	MasterService_ListSnapshots_FullMethodName   = "/godfs.v1.MasterService/ListSnapshots"
-	MasterService_GetSnapshot_FullMethodName     = "/godfs.v1.MasterService/GetSnapshot"
-	MasterService_DeleteSnapshot_FullMethodName  = "/godfs.v1.MasterService/DeleteSnapshot"
-	MasterService_RestoreSnapshot_FullMethodName = "/godfs.v1.MasterService/RestoreSnapshot"
-	MasterService_ListMasters_FullMethodName     = "/godfs.v1.MasterService/ListMasters"
-	MasterService_AddMaster_FullMethodName       = "/godfs.v1.MasterService/AddMaster"
-	MasterService_RemoveMaster_FullMethodName    = "/godfs.v1.MasterService/RemoveMaster"
-	MasterService_ListChunkNodes_FullMethodName  = "/godfs.v1.MasterService/ListChunkNodes"
-	MasterService_RunRebalanceNow_FullMethodName = "/godfs.v1.MasterService/RunRebalanceNow"
+	MasterService_RegisterNode_FullMethodName              = "/godfs.v1.MasterService/RegisterNode"
+	MasterService_CreateFile_FullMethodName                = "/godfs.v1.MasterService/CreateFile"
+	MasterService_Mkdir_FullMethodName                     = "/godfs.v1.MasterService/Mkdir"
+	MasterService_Delete_FullMethodName                    = "/godfs.v1.MasterService/Delete"
+	MasterService_RestoreFile_FullMethodName               = "/godfs.v1.MasterService/RestoreFile"
+	MasterService_Rename_FullMethodName                    = "/godfs.v1.MasterService/Rename"
+	MasterService_TruncateFile_FullMethodName              = "/godfs.v1.MasterService/TruncateFile"
+	MasterService_Stat_FullMethodName                      = "/godfs.v1.MasterService/Stat"
+	MasterService_ListDir_FullMethodName                   = "/godfs.v1.MasterService/ListDir"
+	MasterService_PrepareWrite_FullMethodName              = "/godfs.v1.MasterService/PrepareWrite"
+	MasterService_CommitChunk_FullMethodName               = "/godfs.v1.MasterService/CommitChunk"
+	MasterService_GetChunkForRead_FullMethodName           = "/godfs.v1.MasterService/GetChunkForRead"
+	MasterService_Heartbeat_FullMethodName                 = "/godfs.v1.MasterService/Heartbeat"
+	MasterService_CreateSnapshot_FullMethodName            = "/godfs.v1.MasterService/CreateSnapshot"
+	MasterService_ListSnapshots_FullMethodName             = "/godfs.v1.MasterService/ListSnapshots"
+	MasterService_GetSnapshot_FullMethodName               = "/godfs.v1.MasterService/GetSnapshot"
+	MasterService_DeleteSnapshot_FullMethodName            = "/godfs.v1.MasterService/DeleteSnapshot"
+	MasterService_RestoreSnapshot_FullMethodName           = "/godfs.v1.MasterService/RestoreSnapshot"
+	MasterService_ListMasters_FullMethodName               = "/godfs.v1.MasterService/ListMasters"
+	MasterService_AddMaster_FullMethodName                 = "/godfs.v1.MasterService/AddMaster"
+	MasterService_RemoveMaster_FullMethodName              = "/godfs.v1.MasterService/RemoveMaster"
+	MasterService_ListChunkNodes_FullMethodName            = "/godfs.v1.MasterService/ListChunkNodes"
+	MasterService_RunRebalanceNow_FullMethodName           = "/godfs.v1.MasterService/RunRebalanceNow"
+	MasterService_ListUnderReplicatedChunks_FullMethodName = "/godfs.v1.MasterService/ListUnderReplicatedChunks"
 )
 
 // MasterServiceClient is the client API for MasterService service.
@@ -54,6 +56,8 @@ type MasterServiceClient interface {
 	// Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
 	RestoreFile(ctx context.Context, in *RestoreFileRequest, opts ...grpc.CallOption) (*RestoreFileResponse, error)
 	Rename(ctx context.Context, in *RenameRequest, opts ...grpc.CallOption) (*RenameResponse, error)
+	// Truncate or extend a file to size bytes (sparse extend; shrink drops trailing chunks).
+	TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*TruncateFileResponse, error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	ListDir(ctx context.Context, in *ListDirRequest, opts ...grpc.CallOption) (*ListDirResponse, error)
 	PrepareWrite(ctx context.Context, in *PrepareWriteRequest, opts ...grpc.CallOption) (*PrepareWriteResponse, error)
@@ -75,6 +79,8 @@ type MasterServiceClient interface {
 	ListChunkNodes(ctx context.Context, in *ListChunkNodesRequest, opts ...grpc.CallOption) (*ListChunkNodesResponse, error)
 	// Leader-only: run up to max_steps rebalance plan+execute iterations (admin).
 	RunRebalanceNow(ctx context.Context, in *RunRebalanceNowRequest, opts ...grpc.CallOption) (*RunRebalanceNowResponse, error)
+	// Chunks with fewer live replicas than replication factor (admin-only diagnostic).
+	ListUnderReplicatedChunks(ctx context.Context, in *ListUnderReplicatedChunksRequest, opts ...grpc.CallOption) (*ListUnderReplicatedChunksResponse, error)
 }
 
 type masterServiceClient struct {
@@ -139,6 +145,16 @@ func (c *masterServiceClient) Rename(ctx context.Context, in *RenameRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RenameResponse)
 	err := c.cc.Invoke(ctx, MasterService_Rename_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *masterServiceClient) TruncateFile(ctx context.Context, in *TruncateFileRequest, opts ...grpc.CallOption) (*TruncateFileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TruncateFileResponse)
+	err := c.cc.Invoke(ctx, MasterService_TruncateFile_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -305,6 +321,16 @@ func (c *masterServiceClient) RunRebalanceNow(ctx context.Context, in *RunRebala
 	return out, nil
 }
 
+func (c *masterServiceClient) ListUnderReplicatedChunks(ctx context.Context, in *ListUnderReplicatedChunksRequest, opts ...grpc.CallOption) (*ListUnderReplicatedChunksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListUnderReplicatedChunksResponse)
+	err := c.cc.Invoke(ctx, MasterService_ListUnderReplicatedChunks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MasterServiceServer is the server API for MasterService service.
 // All implementations must embed UnimplementedMasterServiceServer
 // for forward compatibility.
@@ -316,6 +342,8 @@ type MasterServiceServer interface {
 	// Restore a file from trash while GODFS_SOFT_DELETE_GRACE applies (admin).
 	RestoreFile(context.Context, *RestoreFileRequest) (*RestoreFileResponse, error)
 	Rename(context.Context, *RenameRequest) (*RenameResponse, error)
+	// Truncate or extend a file to size bytes (sparse extend; shrink drops trailing chunks).
+	TruncateFile(context.Context, *TruncateFileRequest) (*TruncateFileResponse, error)
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
 	ListDir(context.Context, *ListDirRequest) (*ListDirResponse, error)
 	PrepareWrite(context.Context, *PrepareWriteRequest) (*PrepareWriteResponse, error)
@@ -337,6 +365,8 @@ type MasterServiceServer interface {
 	ListChunkNodes(context.Context, *ListChunkNodesRequest) (*ListChunkNodesResponse, error)
 	// Leader-only: run up to max_steps rebalance plan+execute iterations (admin).
 	RunRebalanceNow(context.Context, *RunRebalanceNowRequest) (*RunRebalanceNowResponse, error)
+	// Chunks with fewer live replicas than replication factor (admin-only diagnostic).
+	ListUnderReplicatedChunks(context.Context, *ListUnderReplicatedChunksRequest) (*ListUnderReplicatedChunksResponse, error)
 	mustEmbedUnimplementedMasterServiceServer()
 }
 
@@ -364,6 +394,9 @@ func (UnimplementedMasterServiceServer) RestoreFile(context.Context, *RestoreFil
 }
 func (UnimplementedMasterServiceServer) Rename(context.Context, *RenameRequest) (*RenameResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Rename not implemented")
+}
+func (UnimplementedMasterServiceServer) TruncateFile(context.Context, *TruncateFileRequest) (*TruncateFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TruncateFile not implemented")
 }
 func (UnimplementedMasterServiceServer) Stat(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Stat not implemented")
@@ -412,6 +445,9 @@ func (UnimplementedMasterServiceServer) ListChunkNodes(context.Context, *ListChu
 }
 func (UnimplementedMasterServiceServer) RunRebalanceNow(context.Context, *RunRebalanceNowRequest) (*RunRebalanceNowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RunRebalanceNow not implemented")
+}
+func (UnimplementedMasterServiceServer) ListUnderReplicatedChunks(context.Context, *ListUnderReplicatedChunksRequest) (*ListUnderReplicatedChunksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUnderReplicatedChunks not implemented")
 }
 func (UnimplementedMasterServiceServer) mustEmbedUnimplementedMasterServiceServer() {}
 func (UnimplementedMasterServiceServer) testEmbeddedByValue()                       {}
@@ -538,6 +574,24 @@ func _MasterService_Rename_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MasterServiceServer).Rename(ctx, req.(*RenameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MasterService_TruncateFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TruncateFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).TruncateFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_TruncateFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).TruncateFile(ctx, req.(*TruncateFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -830,6 +884,24 @@ func _MasterService_RunRebalanceNow_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MasterService_ListUnderReplicatedChunks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUnderReplicatedChunksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MasterServiceServer).ListUnderReplicatedChunks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MasterService_ListUnderReplicatedChunks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MasterServiceServer).ListUnderReplicatedChunks(ctx, req.(*ListUnderReplicatedChunksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MasterService_ServiceDesc is the grpc.ServiceDesc for MasterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -860,6 +932,10 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Rename",
 			Handler:    _MasterService_Rename_Handler,
+		},
+		{
+			MethodName: "TruncateFile",
+			Handler:    _MasterService_TruncateFile_Handler,
 		},
 		{
 			MethodName: "Stat",
@@ -924,6 +1000,10 @@ var MasterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RunRebalanceNow",
 			Handler:    _MasterService_RunRebalanceNow_Handler,
+		},
+		{
+			MethodName: "ListUnderReplicatedChunks",
+			Handler:    _MasterService_ListUnderReplicatedChunks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

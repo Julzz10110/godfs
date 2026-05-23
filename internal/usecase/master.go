@@ -15,6 +15,7 @@ type MasterStore interface {
 	Mkdir(ctx context.Context, path string) error
 	CreateFile(ctx context.Context, path string) (domain.FileID, error)
 	Delete(ctx context.Context, path string) ([]domain.ChunkDeleteInfo, error)
+	TruncateFile(ctx context.Context, path string, size int64) ([]domain.ChunkDeleteInfo, error)
 	RestoreFile(ctx context.Context, path string) error
 	Rename(ctx context.Context, oldPath, newPath string) error
 
@@ -63,4 +64,7 @@ type MasterStore interface {
 
 	// RunRebalanceSteps runs up to maxSteps rebalance iterations (admin-only RPC).
 	RunRebalanceSteps(ctx context.Context, maxSteps int) (executed int, err error)
+
+	// ListUnderReplicatedChunks returns chunks below target replication (admin-only diagnostic).
+	ListUnderReplicatedChunks(ctx context.Context, limit int) (entries []domain.UnderReplicatedChunk, total int, err error)
 }
