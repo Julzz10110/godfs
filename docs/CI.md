@@ -1,16 +1,20 @@
 # CI and quality gates
 
+Before a release tag, run [`docs/RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) (R1–R10). Automated subset: `bash scripts/release_automated_gate.sh`.
+
 ## Workflows
 
 | Job | Workflow | Purpose |
 |-----|----------|---------|
 | `lint` | `ci.yml` | golangci-lint (`errcheck`, `gofumpt`, …) |
 | `test` | `ci.yml` | unit tests, e2e (incl. Raft failover), FUSE build + `go test ./cmd/fuse`, `bench_gate.sh` |
-| `observability` | `ci.yml` | M4: promtool + Helm rules sync |
-| `k8s-manifests` | `ci.yml` | M6: `k8s_verify_manifests.sh` (kustomize build + client dry-run, no cluster) |
+| `observability` | `ci.yml` | promtool + Helm rules sync |
+| `k8s-manifests` | `ci.yml` | `k8s_verify_manifests.sh` (kustomize build + client dry-run, no cluster) |
 | `rest-compose` | `ci.yml` | Docker stack, REST smoke, toxiproxy, integration, chunk chaos, **netem** |
 | `raft-compose` | `ci.yml` | 3× master Raft, bootstrap, leader-kill gRPC smoke, quorum-break |
 | `bench` | `bench.yml` | weekly unit bench + **e2e bench artifact** |
+| `release_automated_gate` | `ci.yml` | `go test`, `observability_check.sh`, `k8s_verify_manifests.sh` |
+| `release-checklist` | `ci.yml` | R1–R10 via `release_checklist_run.sh` (Docker; 10 MiB / 5 min heal in CI) |
 | `testcontainers` | `ci.yml` | **testcontainers-go** compose up + `/v1/health` (set `GODFS_TESTCONTAINERS=1`, non-blocking) |
 
 ## Scripts
@@ -23,6 +27,9 @@
 | `scripts/bench_e2e_report.sh` | Write `BenchmarkE2E_*` output for bench workflow |
 | `scripts/k8s_verify_manifests.sh` | `kubectl kustomize` + kubeconform (base + production overlay; no cluster) |
 | `scripts/k8s_raft_membership_smoke.sh` | `masters list` (+ optional lab add/remove) via port-forward |
+| `scripts/k8s_local_checklist.sh` | Manifest gate + optional live kubectl checks |
+| `scripts/release_automated_gate.sh` | `go test`, observability_check, k8s_verify (before tagging) |
+| `scripts/release_checklist_run.sh` | R1–R10 acceptance (Docker + unit/e2e); artifact `release_checklist_result.txt` in CI |
 
 ### Raft compose stack
 

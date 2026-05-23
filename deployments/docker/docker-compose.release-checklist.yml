@@ -1,0 +1,12 @@
+# Overlay for scripts/release_checklist_run.sh.
+# Faster liveness for lab; keep replication at 1 for single chunk in raft compose.
+services:
+  master-0:
+    environment:
+      GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
+  master-1:
+    environment:
+      GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
+  master-2:
+    environment:
+      GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"

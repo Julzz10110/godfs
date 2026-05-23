@@ -1,13 +1,15 @@
 # goDFS
 
-A distributed file system in Go (1.26+): **Master** (metadata), **ChunkServers** (64 MiB chunks on disk), **3× replication** by default (primary + `SyncChunk` to secondaries). Use `GODFS_REPLICATION=1` for single-replica dev.
+A distributed file system in Go (1.26+): **Master** (metadata, Raft), **ChunkServers** (64 MiB chunks on disk), **3× replication** by default (primary + `SyncChunk` to secondaries). Use `GODFS_REPLICATION=1` for single-replica dev.
+
+**Production-ready baseline:** REST `/v1`, Linux FUSE, operator CLI, snapshots, presigned GET/PUT, multipart uploads, observability bundle, and Kubernetes guides are in the repository. Completion criteria and release acceptance: **[`docs/COMPLETION_PLAN.md`](docs/COMPLETION_PLAN.md)** and **[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)**.
 
 The master can run in two modes:
 
-- **Single process**, in-memory metadata (no extra env) — fastest for local hacking.
-- **Raft cluster** — set `GODFS_MASTER_NODE_ID`, `GODFS_MASTER_RAFT_LISTEN`, `GODFS_MASTER_RAFT_DIR`, `GODFS_MASTER_PEERS`, and one-time `GODFS_MASTER_BOOTSTRAP=1` for an empty cluster. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) (этап 2) and [`deployments/k8s/OPERATIONS.md`](deployments/k8s/OPERATIONS.md).
+- **Single process**, in-memory metadata (no Raft env) — local development only.
+- **Raft cluster** — `GODFS_MASTER_NODE_ID`, `GODFS_MASTER_RAFT_LISTEN`, `GODFS_MASTER_RAFT_DIR`, `GODFS_MASTER_PEERS`, one-time `GODFS_MASTER_BOOTSTRAP=1`. See [`deployments/k8s/OPERATIONS.md`](deployments/k8s/OPERATIONS.md) and [`docs/K8S_PRODUCTION.md`](docs/K8S_PRODUCTION.md).
 
-**Consumers of REST, FUSE, or Helm:** start at **[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)** (quick starts and links).
+**Start here:** **[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)** (REST, FUSE, Helm/K8s, security, env vars, runbook).
 
 ## Quick start
 
@@ -42,10 +44,10 @@ go run ./cmd/client --master 127.0.0.1:9090 write /data/hello.txt ./local.txt
 go run ./cmd/client --master 127.0.0.1:9090 read /data/hello.txt ./out.txt
 ```
 
-Environment variables:
+Environment variables (summary): see **[`docs/ENV_REFERENCE.md`](docs/ENV_REFERENCE.md)**.
 
-- Master: `GODFS_MASTER_LISTEN` or `GODFS_MASTER_GRPC_LISTEN`, `GODFS_CHUNK_SIZE_BYTES`, **`GODFS_REPLICATION`** (default `3`; requires at least that many registered ChunkServers).
-- Chunk: `GODFS_MASTER`, `GODFS_CHUNK_LISTEN`, `GODFS_CHUNK_DATA`, `GODFS_NODE_ID`, **`GODFS_ADVERTISE_ADDR`** (must be reachable from the client and other ChunkServers).
+- Master: `GODFS_MASTER_LISTEN`, `GODFS_CHUNK_SIZE_BYTES`, **`GODFS_REPLICATION`**, Raft `GODFS_MASTER_RAFT_*`.
+- Chunk: `GODFS_MASTER`, `GODFS_CHUNK_DATA`, `GODFS_NODE_ID`, **`GODFS_ADVERTISE_ADDR`**.
 
 For **3× replication**, run three ChunkServer processes with distinct `GODFS_NODE_ID`, `GODFS_CHUNK_DATA`, `GODFS_CHUNK_LISTEN`, and `GODFS_ADVERTISE_ADDR` (e.g. ports 8000, 8001, 8002), then start Master and use the client as usual.
 
