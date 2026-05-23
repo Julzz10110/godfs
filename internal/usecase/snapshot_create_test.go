@@ -81,6 +81,7 @@ func (f *fakeMasterStore) RunRebalanceSteps(context.Context, int) (int, error) {
 func (f *fakeMasterStore) ListUnderReplicatedChunks(context.Context, int) ([]domain.UnderReplicatedChunk, int, error) {
 	return nil, 0, nil
 }
+
 func (f *fakeMasterStore) TruncateFile(context.Context, string, int64) ([]domain.ChunkDeleteInfo, error) {
 	return nil, nil
 }

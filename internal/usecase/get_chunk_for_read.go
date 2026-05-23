@@ -9,12 +9,12 @@ import (
 
 // ChunkReadPlan describes how to read a span from a file chunk.
 type ChunkReadPlan struct {
-	ChunkID      domain.ChunkID
-	ReplicaLocs  []domain.ChunkReplica
-	ChunkOffset  int64
-	Available    int64
-	Version      uint64
-	Checksum     []byte
+	ChunkID     domain.ChunkID
+	ReplicaLocs []domain.ChunkReplica
+	ChunkOffset int64
+	Available   int64
+	Version     uint64
+	Checksum    []byte
 }
 
 // GetChunkForRead resolves chunk placement for a file offset.

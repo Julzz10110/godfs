@@ -28,34 +28,42 @@ func (m *mockFSOpsStore) RegisterNode(_ context.Context, n domain.ChunkNode) err
 	m.registered = n
 	return nil
 }
+
 func (m *mockFSOpsStore) Heartbeat(_ context.Context, id domain.NodeID, _, _ int64) error {
 	m.heartbeatID = id
 	return nil
 }
+
 func (m *mockFSOpsStore) Mkdir(_ context.Context, path string) error {
 	m.mkdirPath = path
 	return nil
 }
+
 func (m *mockFSOpsStore) CreateFile(_ context.Context, path string) (domain.FileID, error) {
 	m.createPath = path
 	return domain.FileID("fid-1"), nil
 }
+
 func (m *mockFSOpsStore) Rename(_ context.Context, oldPath, newPath string) error {
 	m.renameOld, m.renameNew = oldPath, newPath
 	return nil
 }
+
 func (m *mockFSOpsStore) Stat(_ context.Context, path string) (bool, int64, time.Time, time.Time, uint32, error) {
 	m.statPath = path
 	return path == "/d", 0, time.Time{}, time.Time{}, 0o755, nil
 }
+
 func (m *mockFSOpsStore) ListDir(_ context.Context, path string) ([]string, bool, error) {
 	m.listDirPath = path
 	return []string{"a.txt", "sub"}, true, nil
 }
+
 func (m *mockFSOpsStore) CommitChunk(_ context.Context, path string, cid domain.ChunkID, _, _, _ int64, _ []byte, _ uint64) error {
 	m.commitPath, m.commitChunkID = path, cid
 	return nil
 }
+
 func (m *mockFSOpsStore) GetChunkForRead(_ context.Context, path string, offset int64) (
 	domain.ChunkID, []domain.ChunkReplica, int64, int64, uint64, []byte, error,
 ) {
@@ -66,32 +74,43 @@ func (m *mockFSOpsStore) GetChunkForRead(_ context.Context, path string, offset 
 func (m *mockFSOpsStore) Delete(context.Context, string) ([]domain.ChunkDeleteInfo, error) {
 	return nil, nil
 }
+
 func (m *mockFSOpsStore) TruncateFile(context.Context, string, int64) ([]domain.ChunkDeleteInfo, error) {
 	return nil, nil
 }
+
 func (m *mockFSOpsStore) RestoreFile(context.Context, string) error { return nil }
+
 func (m *mockFSOpsStore) PrepareWrite(context.Context, string, int64, int64) (
 	domain.ChunkID, string, []string, domain.NodeID, domain.LeaseID, int64, int64, int64, uint64, error,
 ) {
 	return "", "", nil, "", "", 0, 0, 0, 0, nil
 }
+
 func (m *mockFSOpsStore) CreateSnapshot(context.Context, string) (string, int64, error) {
 	return "", 0, nil
 }
+
 func (m *mockFSOpsStore) ListSnapshots(context.Context) ([]domain.SnapshotInfo, error) {
 	return nil, nil
 }
+
 func (m *mockFSOpsStore) GetSnapshot(context.Context, string) (*domain.BackupSnapshot, error) {
 	return nil, nil
 }
+
 func (m *mockFSOpsStore) DeleteSnapshot(context.Context, string) error { return nil }
+
 func (m *mockFSOpsStore) RestoreSnapshot(context.Context, *domain.BackupSnapshot, bool) error {
 	return nil
 }
+
 func (m *mockFSOpsStore) ListChunkNodes(context.Context) ([]domain.ChunkNodeDiag, error) {
 	return nil, nil
 }
+
 func (m *mockFSOpsStore) RunRebalanceSteps(context.Context, int) (int, error) { return 0, nil }
+
 func (m *mockFSOpsStore) ListUnderReplicatedChunks(context.Context, int) ([]domain.UnderReplicatedChunk, int, error) {
 	return nil, 0, nil
 }
