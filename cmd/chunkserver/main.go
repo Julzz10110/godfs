@@ -181,14 +181,18 @@ func main() {
 		unary = append(unary, rl)
 	}
 	unary = append(unary, grpcsvc.NewChunkUnaryInterceptor(authHolder, audit, chunkAudit))
-	serverOpts = append(
-		serverOpts,
+	var stream []grpc.StreamServerInterceptor
+	stream = append(stream,
+		security.GRPCStreamRequestIDSpanInterceptor(),
+		observability.GRPCStreamPrometheusInterceptor(),
+	)
+	if streamRL := security.GRPCStreamPeerRateLimitFromEnv(); streamRL != nil {
+		stream = append(stream, streamRL)
+	}
+	stream = append(stream, grpcsvc.NewChunkStreamInterceptor(authHolder, audit, chunkAudit))
+	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(unary...),
-		grpc.ChainStreamInterceptor(
-			security.GRPCStreamRequestIDSpanInterceptor(),
-			observability.GRPCStreamPrometheusInterceptor(),
-			grpcsvc.NewChunkStreamInterceptor(authHolder, audit, chunkAudit),
-		),
+		grpc.ChainStreamInterceptor(stream...),
 	)
 	srv := grpc.NewServer(serverOpts...)
 	godfsv1.RegisterChunkServiceServer(srv, &grpcsvc.ChunkServer{Store: st, ReadCache: readCache})

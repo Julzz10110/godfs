@@ -82,6 +82,16 @@ Manual checklist validated on:
 | **kind** v0.24.0 | **1.29.2** | `kind create cluster`; `kind load docker-image` for godfs images |
 | **minikube** v1.34.0 | **1.30.0** | `minikube start`; use `minikube image load` |
 
+**Recorded validation:** 2026-05-24 (lab); re-run after manifest or k8s minor upgrades and update the table if versions drift.
+
+Automated helpers (cluster optional):
+
+```bash
+bash scripts/k8s_verify_manifests.sh          # kubeconform, no cluster
+bash scripts/k8s_local_checklist.sh         # manifest gate + optional live checks when kubectl context is set
+bash scripts/k8s_raft_membership_smoke.sh     # requires port-forward to godfs-master:9090
+```
+
 Steps (lab):
 
 1. Create cluster and load images (`deployments/k8s/README.md`).

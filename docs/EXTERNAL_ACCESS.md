@@ -161,7 +161,7 @@ You need **`fusermount3`** / libfuse and permission to mount (often the `fuse` g
     - `GODFS_REST_RATE_LIMIT_BURST` — burst (default 10).
     - `GODFS_REST_RATE_LIMIT_TTL_SECONDS` — in-memory bucket TTL (default 600).
   - TLS / auth: **`GODFS_TLS_*`** for outbound gRPC to Master (like the CLI); for **HTTPS** on the gateway itself use **`GODFS_REST_HTTPS_ENABLED`** and `GODFS_REST_TLS_*` (above).
-  - **Multipart staging:** `GODFS_REST_MULTIPART_DIR` (directory for temporary parts; default under `os.TempDir()`), `GODFS_REST_MULTIPART_MAX_PARTS` (default **1000**), `GODFS_REST_MULTIPART_MAX_PART_BYTES` (defaults to **`GODFS_REST_MAX_UPLOAD_BYTES`** / `GODFS_REST_MAX_BODY_BYTES`).
+  - **Multipart staging:** `GODFS_REST_MULTIPART_DIR` (directory for temporary parts; default under `os.TempDir()`), `GODFS_REST_MULTIPART_MAX_PARTS` (default **1000**), `GODFS_REST_MULTIPART_MAX_PART_BYTES` (defaults to **`GODFS_REST_MAX_UPLOAD_BYTES`** / `GODFS_REST_MAX_BODY_BYTES`). Prometheus: `godfs_rest_multipart_uploads_active`, `godfs_rest_multipart_parts_staged_bytes` (see `docs/RUNBOOK.md`).
 - Authentication: `Authorization: Bearer …` on every request (except `GET /v1/health` unless you enforce auth at the ingress).
 - Endpoints: see §2.4 (including `/v1/snapshots/...`, multipart).
 

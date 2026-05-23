@@ -73,7 +73,17 @@ type multipartManager struct {
 }
 
 func newMultipartManager(dir string) *multipartManager {
-	return &multipartManager{dir: dir}
+	m := &multipartManager{dir: dir}
+	reconcileMultipartMetricsFromDisk(dir)
+	return m
+}
+
+func (m *multipartManager) releaseUploadMetrics(uploadID string) {
+	dir := m.uploadDir(uploadID)
+	if staged := stagedBytesInUploadDir(dir); staged > 0 {
+		addMultipartStagedBytes(-staged)
+	}
+	decMultipartUploadsActive()
 }
 
 func (m *multipartManager) uploadDir(uploadID string) string {
@@ -109,6 +119,7 @@ func (m *multipartManager) Init(path string) (uploadID string, err error) {
 		_ = os.RemoveAll(dir)
 		return "", err
 	}
+	incMultipartUploadsActive()
 	return uploadID, nil
 }
 
@@ -141,6 +152,10 @@ func (m *multipartManager) PutPart(uploadID string, partNum int, r io.Reader, ma
 		return "", 0, os.ErrNotExist
 	}
 	fpath := filepath.Join(dir, fmt.Sprintf("part-%d", partNum))
+	var prevPartBytes int64
+	if st, err := os.Stat(fpath); err == nil {
+		prevPartBytes = st.Size()
+	}
 	tmp := fpath + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -168,6 +183,7 @@ func (m *multipartManager) PutPart(uploadID string, partNum int, r io.Reader, ma
 		return "", 0, err
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
+	addMultipartStagedBytes(n - prevPartBytes)
 	return "sha256-" + sum, n, nil
 }
 
@@ -300,6 +316,7 @@ func (m *multipartManager) Complete(ctx context.Context, cli gatewayClient, uplo
 		_ = cli.Delete(ctx, p)
 		return "", err
 	}
+	m.releaseUploadMetrics(uploadID)
 	_ = os.RemoveAll(dir)
 	m.locks.Delete(uploadID)
 	return p, nil
@@ -309,6 +326,7 @@ func (m *multipartManager) Abort(uploadID string) {
 	mu := m.lockFor(uploadID)
 	mu.Lock()
 	defer mu.Unlock()
+	m.releaseUploadMetrics(uploadID)
 	_ = os.RemoveAll(m.uploadDir(uploadID))
 	m.locks.Delete(uploadID)
 }

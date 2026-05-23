@@ -208,7 +208,9 @@ Constraints and recommendations:
 
 - Variables and behavior: `docs/EXTERNAL_ACCESS.md` (§5).
 - Default listener is **HTTP**. **HTTPS** on the same address (`GODFS_REST_LISTEN`): `GODFS_REST_HTTPS_ENABLED=1` + `GODFS_REST_TLS_CERT_FILE` / `GODFS_REST_TLS_KEY_FILE` (or fallback to `GODFS_TLS_CERT_FILE` / `GODFS_TLS_KEY_FILE`); optional mTLS for clients to the gateway — `GODFS_REST_TLS_CA_FILE`. Certificate hot-reload: `GODFS_TLS_RELOAD=1` (see “TLS rotation” below).
-- Metrics: `GODFS_METRICS_LISTEN` — same `godfs_rest_*` counters as other binaries.
+- Metrics: `GODFS_METRICS_LISTEN` — `godfs_rest_http_*` plus multipart staging gauges:
+  - `godfs_rest_multipart_uploads_active` — in-progress uploads (manifest present under `GODFS_REST_MULTIPART_DIR`).
+  - `godfs_rest_multipart_parts_staged_bytes` — bytes of `part-*` files on disk. Should return to **0** after `complete` or `abort` (reconcile on gateway restart scans the staging dir).
 - Defaults: **`GODFS_REST_READ_TIMEOUT` / `GODFS_REST_WRITE_TIMEOUT` = 15m**; **`0`** / **`off`** disable them (in `deployments/docker/docker-compose.yml` the `rest` service sets **`0`** so smoke tests are not bounded).
 - Docker Compose: `deployments/docker/docker-compose.yml` — services `master` (**`GODFS_REPLICATION=1`** for a single chunk), `chunk`, **`rest`** (image `Dockerfile.restgateway`). Smoke: **`bash scripts/rest_compose_smoke.sh`** (**`python3`** required on the host).
 - Operator CLI: **`godfs-client nodes`** — registered chunk nodes and liveness (RPC `ListChunkNodes`, needs **admin** in RBAC when auth is on); **`godfs-client chunks under-replicated [--json]`** — list chunks below replication factor (admin, exit **1** if any); **`godfs-client masters list|add|remove`**, **`godfs-client snapshot …`**, **`godfs-client rebalance-run [--steps N]`** (admin, RPC `RunRebalanceNow`).

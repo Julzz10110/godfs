@@ -87,7 +87,9 @@ Master and Chunk unary RPCs (process-wide token bucket):
 - `GODFS_GRPC_PEER_RATE_LIMIT_RPS` / `GODFS_GRPC_PEER_RATE_LIMIT_BURST` — per-caller bucket (mTLS client CN, else Bearer token hash)
 - `GODFS_API_KEYS=@/path/keys` and `GODFS_CLUSTER_KEY=@/path/key` — file-backed secrets; `GODFS_AUTH_RELOAD_INTERVAL` (≥ `2s`) hot-reloads without restart
 
-On the **Master**, `RegisterNode` and `Heartbeat` are **exempt** so chunk clusters are not starved by the same bucket as user metadata RPCs. Streaming RPCs on Chunk are not limited by this env (baseline).
+On the **Master**, `RegisterNode` and `Heartbeat` are **exempt** so chunk clusters are not starved by the same bucket as user metadata RPCs.
+
+**Chunk streaming (optional):** `GODFS_GRPC_PEER_STREAM_MAX_CONCURRENT` — max simultaneous `ReadChunk` / `PullChunk` streams per peer (same identity key as per-peer unary). Over limit → gRPC **`ResourceExhausted`**. Does not apply to Master unary RPCs.
 
 ## REST gateway (abuse surface)
 
