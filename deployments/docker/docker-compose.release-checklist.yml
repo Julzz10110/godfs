@@ -1,12 +1,41 @@
 # Overlay for scripts/release_checklist_run.sh.
-# Faster liveness for lab; keep replication at 1 for single chunk in raft compose.
+# replication=2 + two chunks (ListUnderReplicated skips targetRF<=1).
 services:
   master-0:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
+      GODFS_REPLICATION: "2"
   master-1:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
+      GODFS_REPLICATION: "2"
   master-2:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
+      GODFS_REPLICATION: "2"
+
+  chunk-b:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.chunkserver
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8001:8000"
+      - "9097:9091"
+    environment:
+      GODFS_MASTER: "master-0:9090"
+      GODFS_NODE_ID: "chunk-2"
+      GODFS_ADVERTISE_ADDR: "127.0.0.1:8001"
+      GODFS_CHUNK_LISTEN: "0.0.0.0:8000"
+      GODFS_CHUNK_DATA: "/var/lib/godfs/data"
+      GODFS_METRICS_LISTEN: "0.0.0.0:9091"
+    volumes:
+      - chunkdata-b:/var/lib/godfs
+    depends_on:
+      - master-0
+      - master-1
+      - master-2
+
+volumes:
+  chunkdata-b: {}

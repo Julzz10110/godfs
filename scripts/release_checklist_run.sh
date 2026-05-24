@@ -67,8 +67,8 @@ go build -o bin/godfs-client ./cmd/client
 "${COMPOSE[@]}" up -d --build master-0 master-1 master-2
 bash scripts/raft_compose_bootstrap.sh
 
-echo "Starting chunk and REST (masters must not be recreated) ..."
-"${COMPOSE[@]}" up -d --no-recreate chunk rest
+echo "Starting chunk servers and REST (masters must not be recreated) ..."
+"${COMPOSE[@]}" up -d --no-recreate chunk chunk-b rest
 
 echo "Waiting for Raft leader ..."
 GODFS_RAFT_LEADER_WAIT_TIMEOUT="${GODFS_RAFT_LEADER_WAIT_TIMEOUT:-180}" \
@@ -78,9 +78,9 @@ GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || fail "no Raft leader for client"
 export GODFS_MASTER_ADDR
 echo "Using master gRPC ${GODFS_MASTER_ADDR}"
 
-echo "Waiting for chunk registration ..."
-wait_chunk_alive "$GODFS_MASTER_ADDR" "${GODFS_CHUNK_WAIT_SEC:-180}" \
-	|| fail "chunk did not register"
+echo "Waiting for two chunk nodes (replication=2) ..."
+wait_chunks_alive_min "$GODFS_MASTER_ADDR" 2 "${GODFS_CHUNK_WAIT_SEC:-180}" \
+	|| fail "expected 2 alive chunk nodes"
 
 section "R8 operator CLI"
 godfs_client --master "$GODFS_MASTER_ADDR" nodes
@@ -110,8 +110,9 @@ fi
 pass "R1 ${R1_MB}MiB upload/read SHA-256"
 
 section "R2 under-replicated healing"
+# ListUnderReplicated is empty when replication<=1; overlay uses RF=2 and two chunks.
 "${COMPOSE[@]}" stop chunk
-sleep 8
+sleep "${RELEASE_R2_DEAD_WAIT_SEC:-10}"
 set +e
 godfs_client --master "$GODFS_MASTER_ADDR" chunks under-replicated
 urc=$?
@@ -122,7 +123,7 @@ fi
 "${COMPOSE[@]}" start chunk
 GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || fail "no Raft leader during R2 heal"
 export GODFS_MASTER_ADDR
-wait_chunk_alive "$GODFS_MASTER_ADDR" "${GODFS_CHUNK_WAIT_SEC:-180}"
+wait_chunks_alive_min "$GODFS_MASTER_ADDR" 2 "${GODFS_CHUNK_WAIT_SEC:-180}"
 deadline=$((SECONDS + R2_HEAL_SEC))
 healed=0
 while ((SECONDS < deadline)); do

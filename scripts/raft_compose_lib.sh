@@ -43,6 +43,24 @@ wait_chunk_alive() {
   return 1
 }
 
+# Wait until at least min_alive chunk nodes report alive on the leader.
+wait_chunks_alive_min() {
+  local master_grpc="$1"
+  local min_alive="$2"
+  local timeout_sec="${3:-180}"
+  local deadline=$((SECONDS + timeout_sec))
+  local n
+  while ((SECONDS < deadline)); do
+    n=$(godfs_client --master "$master_grpc" nodes 2>/dev/null | grep -c $'\talive$' || true)
+    if [[ "${n:-0}" -ge "$min_alive" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "fewer than ${min_alive} alive chunk nodes on ${master_grpc} within ${timeout_sec}s" >&2
+  return 1
+}
+
 # Echo 0..N-1 index of the master that answers masters list as leader; exit 1 if none.
 # Caller may set GRPC_PORTS / METRICS_PORTS; otherwise RAFT_* defaults apply.
 raft_find_leader_index() {
