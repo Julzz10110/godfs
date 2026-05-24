@@ -18,6 +18,8 @@ import (
 func main() {
 	master := pflag.StringP("master", "m", "127.0.0.1:9090", "master gRPC address")
 	apiKey := pflag.String("api-key", "", "Bearer token / API key (overrides GODFS_CLIENT_API_KEY)")
+	// Subcommand flags (e.g. rebalance-run --steps N) must not be parsed as global flags.
+	pflag.CommandLine.SetInterspersed(false)
 	pflag.Parse()
 
 	args := pflag.Args()
