@@ -28,6 +28,45 @@ raft_leader_grpc_addr() {
   echo "127.0.0.1:${RAFT_GRPC_PORTS[$idx]}"
 }
 
+# Map host-published master gRPC (127.0.0.1:909x) to compose DNS (master-N:9090).
+host_master_to_compose_master() {
+  local host="$1"
+  local i
+  for i in "${!RAFT_GRPC_PORTS[@]}"; do
+    if [[ "127.0.0.1:${RAFT_GRPC_PORTS[$i]}" == "$host" ]]; then
+      echo "master-${i}:9090"
+      return 0
+    fi
+  done
+  return 1
+}
+
+compose_master_grpc_addr() {
+  local idx
+  idx="$(raft_find_leader_index)" || return 1
+  echo "master-${idx}:9090"
+}
+
+# Data-plane CLI on the compose network (chunk advertise uses service DNS names).
+# Requires GODFS_COMPOSE_EXTRA_FILE when chunks use in-network advertise (release-checklist overlay).
+godfs_client_compose() {
+  local master="${1:?}"
+  shift
+  local base="${GODFS_RAFT_COMPOSE_FILE:-deployments/docker/docker-compose.raft.yml}"
+  local extra="${GODFS_COMPOSE_EXTRA_FILE:-}"
+  local -a run=(docker compose -f "$base")
+  if [[ -n "$extra" ]]; then
+    run+=(-f "$extra")
+  fi
+  local tmp="${TMPDIR:-/tmp}"
+  local vol=()
+  if [[ -d "$tmp" ]]; then
+    vol=(-v "${tmp}:${tmp}")
+  fi
+  "${run[@]}" run --rm --no-deps -T --user "$(id -u):$(id -g)" "${vol[@]}" \
+    client --master "$master" "$@"
+}
+
 # Wait until ListChunkNodes reports at least one alive node on the given master gRPC address.
 wait_chunk_alive() {
   local master_grpc="$1"

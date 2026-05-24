@@ -19,11 +19,23 @@ if ! wait_chunk_alive "$MASTER" "$CHUNK_WAIT_SEC"; then
   exit 1
 fi
 
-godfs_client --master "$MASTER" mkdir "$PREFIX"
-godfs_client --master "$MASTER" create "${PREFIX}/ok.txt"
+_grpc_smoke_client() {
+  local host_master="$1"
+  shift
+  if [[ "${GODFS_GRPC_SMOKE_USE_COMPOSE:-0}" == "1" ]]; then
+    local compose_master
+    compose_master="$(host_master_to_compose_master "$host_master")" || return 1
+    godfs_client_compose "$compose_master" "$@"
+  else
+    godfs_client --master "$host_master" "$@"
+  fi
+}
+
+_grpc_smoke_client "$MASTER" mkdir "$PREFIX"
+_grpc_smoke_client "$MASTER" create "${PREFIX}/ok.txt"
 echo -n 'grpc-smoke-ok' >"$TMP"
-godfs_client --master "$MASTER" write "${PREFIX}/ok.txt" "$TMP"
-godfs_client --master "$MASTER" read "${PREFIX}/ok.txt" "${TMP}.out"
+_grpc_smoke_client "$MASTER" write "${PREFIX}/ok.txt" "$TMP"
+_grpc_smoke_client "$MASTER" read "${PREFIX}/ok.txt" "${TMP}.out"
 got="$(cat "${TMP}.out")"
 if [[ "$got" != 'grpc-smoke-ok' ]]; then
   echo "read mismatch: got $got" >&2

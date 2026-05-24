@@ -12,28 +12,7 @@ COMPOSE_BASE="${GODFS_RAFT_COMPOSE_FILE:-deployments/docker/docker-compose.raft.
 COMPOSE_OVERLAY="deployments/docker/docker-compose.release-checklist.yml"
 COMPOSE=(docker compose -f "$COMPOSE_BASE" -f "$COMPOSE_OVERLAY")
 export GODFS_CLIENT_BIN="${GODFS_CLIENT_BIN:-${ROOT}/bin/godfs-client}"
-
-# Master gRPC on the compose network (chunk advertise uses service DNS names).
-compose_master_grpc_addr() {
-	local idx
-	idx="$(raft_find_leader_index)" || return 1
-	echo "master-${idx}:9090"
-}
-
-# Data-plane CLI on the compose network (replication=2 needs chunk:8000 / chunk-b:8000).
-godfs_client_compose() {
-	local master="${1:-}"
-	shift
-	[[ -n "$master" ]] || master="$(compose_master_grpc_addr)" || return 1
-	local tmp="${TMPDIR:-/tmp}"
-	local vol=()
-	if [[ -d "$tmp" ]]; then
-		vol=(-v "${tmp}:${tmp}")
-	fi
-	# Match host uid/gid so files on the mounted TMPDIR are removable after compose run.
-	"${COMPOSE[@]}" run --rm --no-deps -T --user "$(id -u):$(id -g)" "${vol[@]}" \
-		client --master "$master" "$@"
-}
+export GODFS_COMPOSE_EXTRA_FILE="$COMPOSE_OVERLAY"
 
 R1_MB="${RELEASE_R1_SIZE_MB:-100}"
 R2_HEAL_SEC="${RELEASE_R2_HEAL_SEC:-900}"
@@ -176,6 +155,7 @@ pass "R2 under-replicated then healed"
 
 section "R3 Raft leader failover"
 export GODFS_RAFT_COMPOSE_FILE="$COMPOSE_BASE"
+export GODFS_GRPC_SMOKE_USE_COMPOSE=1
 bash scripts/compose_raft_leader_chaos.sh
 pass "R3 raft leader chaos"
 
