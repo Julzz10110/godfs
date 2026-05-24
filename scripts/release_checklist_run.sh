@@ -30,7 +30,9 @@ godfs_client_compose() {
 	if [[ -d "$tmp" ]]; then
 		vol=(-v "${tmp}:${tmp}")
 	fi
-	"${COMPOSE[@]}" run --rm --no-deps -T "${vol[@]}" client --master "$master" "$@"
+	# Match host uid/gid so files on the mounted TMPDIR are removable after compose run.
+	"${COMPOSE[@]}" run --rm --no-deps -T --user "$(id -u):$(id -g)" "${vol[@]}" \
+		client --master "$master" "$@"
 }
 
 R1_MB="${RELEASE_R1_SIZE_MB:-100}"
