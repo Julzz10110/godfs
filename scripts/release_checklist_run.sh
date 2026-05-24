@@ -111,14 +111,24 @@ pass "R1 ${R1_MB}MiB upload/read SHA-256"
 
 section "R2 under-replicated healing"
 # ListUnderReplicated is empty when replication<=1; overlay uses RF=2 and two chunks.
+# Auto-rebalance is disabled in compose overlay; poll after NODE_DEAD_AFTER.
 "${COMPOSE[@]}" stop chunk
-sleep "${RELEASE_R2_DEAD_WAIT_SEC:-10}"
-set +e
-godfs_client --master "$GODFS_MASTER_ADDR" chunks under-replicated
-urc=$?
-set -e
-if [[ "$urc" -eq 0 ]]; then
-	fail "R2 expected exit 1 when chunk is down"
+r2_deadline=$((SECONDS + "${RELEASE_R2_DETECT_SEC:-45}"))
+urc=0
+while ((SECONDS < r2_deadline)); do
+	sleep 2
+	GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || true
+	export GODFS_MASTER_ADDR
+	set +e
+	godfs_client --master "$GODFS_MASTER_ADDR" chunks under-replicated
+	urc=$?
+	set -e
+	if [[ "$urc" -eq 1 ]]; then
+		break
+	fi
+done
+if [[ "$urc" -ne 1 ]]; then
+	fail "R2 expected under-replicated within ${RELEASE_R2_DETECT_SEC:-45}s after stopping chunk"
 fi
 "${COMPOSE[@]}" start chunk
 GODFS_MASTER_ADDR="$(raft_leader_grpc_addr)" || fail "no Raft leader during R2 heal"

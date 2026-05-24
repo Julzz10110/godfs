@@ -5,14 +5,18 @@ services:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
       GODFS_REPLICATION: "2"
+      # Avoid auto-heal before CLI check; release_checklist_run.sh calls rebalance-run.
+      GODFS_REBALANCE_INTERVAL: "${GODFS_REBALANCE_INTERVAL:-1h}"
   master-1:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
       GODFS_REPLICATION: "2"
+      GODFS_REBALANCE_INTERVAL: "${GODFS_REBALANCE_INTERVAL:-1h}"
   master-2:
     environment:
       GODFS_NODE_DEAD_AFTER: "${GODFS_NODE_DEAD_AFTER:-5s}"
       GODFS_REPLICATION: "2"
+      GODFS_REBALANCE_INTERVAL: "${GODFS_REBALANCE_INTERVAL:-1h}"
 
   chunk-b:
     build:
