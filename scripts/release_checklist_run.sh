@@ -13,6 +13,26 @@ COMPOSE_OVERLAY="deployments/docker/docker-compose.release-checklist.yml"
 COMPOSE=(docker compose -f "$COMPOSE_BASE" -f "$COMPOSE_OVERLAY")
 export GODFS_CLIENT_BIN="${GODFS_CLIENT_BIN:-${ROOT}/bin/godfs-client}"
 
+# Master gRPC on the compose network (chunk advertise uses service DNS names).
+compose_master_grpc_addr() {
+	local idx
+	idx="$(raft_find_leader_index)" || return 1
+	echo "master-${idx}:9090"
+}
+
+# Data-plane CLI on the compose network (replication=2 needs chunk:8000 / chunk-b:8000).
+godfs_client_compose() {
+	local master="${1:-}"
+	shift
+	[[ -n "$master" ]] || master="$(compose_master_grpc_addr)" || return 1
+	local tmp="${TMPDIR:-/tmp}"
+	local vol=()
+	if [[ -d "$tmp" ]]; then
+		vol=(-v "${tmp}:${tmp}")
+	fi
+	"${COMPOSE[@]}" run --rm --no-deps -T "${vol[@]}" client --master "$master" "$@"
+}
+
 R1_MB="${RELEASE_R1_SIZE_MB:-100}"
 R2_HEAL_SEC="${RELEASE_R2_HEAL_SEC:-900}"
 RESULT_FILE="${RELEASE_CHECKLIST_RESULT:-${ROOT}/release_checklist_result.txt}"
@@ -100,10 +120,11 @@ OUT="${TMPDIR}/godfs_r1_out.bin"
 dd if=/dev/urandom of="$IN" bs=1M count="$R1_MB" status=none 2>/dev/null \
 	|| dd if=/dev/urandom of="$IN" bs=1048576 count="$R1_MB" status=none
 HASH_IN="$(sha256sum "$IN" | awk '{print $1}')"
-godfs_client --master "$GODFS_MASTER_ADDR" mkdir "$PREFIX" || true
-godfs_client --master "$GODFS_MASTER_ADDR" create "${PREFIX}/big.bin" || true
-godfs_client --master "$GODFS_MASTER_ADDR" write "${PREFIX}/big.bin" "$IN"
-godfs_client --master "$GODFS_MASTER_ADDR" read "${PREFIX}/big.bin" "$OUT"
+COMPOSE_MASTER="$(compose_master_grpc_addr)" || fail "no Raft leader for compose client"
+godfs_client_compose "$COMPOSE_MASTER" mkdir "$PREFIX" || true
+godfs_client_compose "$COMPOSE_MASTER" create "${PREFIX}/big.bin" || true
+godfs_client_compose "$COMPOSE_MASTER" write "${PREFIX}/big.bin" "$IN"
+godfs_client_compose "$COMPOSE_MASTER" read "${PREFIX}/big.bin" "$OUT"
 HASH_OUT="$(sha256sum "$OUT" | awk '{print $1}')"
 rm -f "$IN" "$OUT"
 if [[ "$HASH_IN" != "$HASH_OUT" ]]; then

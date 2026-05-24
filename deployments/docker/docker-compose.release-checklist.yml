@@ -18,6 +18,11 @@ services:
       GODFS_REPLICATION: "2"
       GODFS_REBALANCE_INTERVAL: "${GODFS_REBALANCE_INTERVAL:-1h}"
 
+  # In-network advertise so chunk-to-chunk replication works (see docker-compose.yml).
+  chunk:
+    environment:
+      GODFS_ADVERTISE_ADDR: "chunk:8000"
+
   chunk-b:
     build:
       context: ../..
@@ -30,7 +35,7 @@ services:
     environment:
       GODFS_MASTER: "master-0:9090"
       GODFS_NODE_ID: "chunk-2"
-      GODFS_ADVERTISE_ADDR: "127.0.0.1:8001"
+      GODFS_ADVERTISE_ADDR: "chunk-b:8000"
       GODFS_CHUNK_LISTEN: "0.0.0.0:8000"
       GODFS_CHUNK_DATA: "/var/lib/godfs/data"
       GODFS_METRICS_LISTEN: "0.0.0.0:9091"
@@ -40,6 +45,14 @@ services:
       - master-0
       - master-1
       - master-2
+
+  client:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.client
+    entrypoint: ["/usr/local/bin/godfs-client"]
+    depends_on:
+      - master-0
 
 volumes:
   chunkdata-b: {}
