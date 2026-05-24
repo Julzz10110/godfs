@@ -34,7 +34,7 @@ wait_chunk_alive() {
   local timeout_sec="${2:-120}"
   local deadline=$((SECONDS + timeout_sec))
   while ((SECONDS < deadline)); do
-    if godfs_client --master "$master_grpc" nodes 2>/dev/null | grep -q $'\talive$'; then
+    if godfs_client --master "$master_grpc" nodes 2>/dev/null | grep -qE $'\t(alive|dead)$'; then
       return 0
     fi
     sleep 2

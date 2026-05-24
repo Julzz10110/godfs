@@ -242,7 +242,7 @@ func (s *State) pickNodesAt(n int, at time.Time) ([]domain.ChunkNode, error) {
 	if s.NodeDeadAfter > 0 {
 		var filtered []domain.ChunkNode
 		for _, node := range s.Nodes {
-			if s.isAliveAt(node.ID, at) {
+			if s.isAliveForPlacement(node.ID, at) {
 				filtered = append(filtered, node)
 			}
 		}
@@ -259,12 +259,33 @@ func (s *State) pickNodesAt(n int, at time.Time) ([]domain.ChunkNode, error) {
 	return out, nil
 }
 
+// isAliveAt is strict: no heartbeat yet counts as not alive (under-replication, diagnostics).
 func (s *State) isAliveAt(nodeID domain.NodeID, at time.Time) bool {
 	st, ok := s.NodeStatus[nodeID]
-	if !ok || st.LastSeen.IsZero() || s.NodeDeadAfter <= 0 {
+	if !ok {
+		return false
+	}
+	if s.NodeDeadAfter <= 0 {
 		return true
 	}
-	// alive if lastSeen + deadAfter >= at
+	if st.LastSeen.IsZero() {
+		return false
+	}
+	return !st.LastSeen.Add(s.NodeDeadAfter).Before(at)
+}
+
+// isAliveForPlacement treats missing heartbeat as alive until proven stale (placement only).
+func (s *State) isAliveForPlacement(nodeID domain.NodeID, at time.Time) bool {
+	st, ok := s.NodeStatus[nodeID]
+	if !ok {
+		return false
+	}
+	if s.NodeDeadAfter <= 0 {
+		return true
+	}
+	if st.LastSeen.IsZero() {
+		return true
+	}
 	return !st.LastSeen.Add(s.NodeDeadAfter).Before(at)
 }
 

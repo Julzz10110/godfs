@@ -66,6 +66,25 @@ func TestE2E_ListUnderReplicatedChunks_deadNode(t *testing.T) {
 	defer stopA()
 	defer stopB()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cli, err := client.NewWithChunkSize(masterAddr, chunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+
+	// Write while both nodes are alive (replication=2).
+	if err := cli.Mkdir(ctx, "/ur"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.Create(ctx, "/ur/f.bin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.Write(ctx, "/ur/f.bin", []byte("under-replicated-smoke")); err != nil {
+		t.Fatal(err)
+	}
+
 	// Heartbeat only node a so b goes dead after deadAfter.
 	hbConn, err := grpc.NewClient(masterAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -89,24 +108,6 @@ func TestE2E_ListUnderReplicatedChunks_deadNode(t *testing.T) {
 		}
 	}()
 	defer close(done)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cli, err := client.NewWithChunkSize(masterAddr, chunkSize)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cli.Close()
-
-	if err := cli.Mkdir(ctx, "/ur"); err != nil {
-		t.Fatal(err)
-	}
-	if err := cli.Create(ctx, "/ur/f.bin"); err != nil {
-		t.Fatal(err)
-	}
-	if err := cli.Write(ctx, "/ur/f.bin", []byte("under-replicated-smoke")); err != nil {
-		t.Fatal(err)
-	}
 
 	time.Sleep(deadAfter + 400*time.Millisecond)
 

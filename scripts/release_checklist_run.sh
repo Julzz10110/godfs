@@ -81,6 +81,8 @@ echo "Using master gRPC ${GODFS_MASTER_ADDR}"
 echo "Waiting for two chunk nodes (replication=2) ..."
 wait_chunks_alive_min "$GODFS_MASTER_ADDR" 2 "${GODFS_CHUNK_WAIT_SEC:-180}" \
 	|| fail "expected 2 alive chunk nodes"
+echo "Waiting for chunk heartbeats (${RELEASE_CHUNK_HB_WAIT_SEC:-8}s) ..."
+sleep "${RELEASE_CHUNK_HB_WAIT_SEC:-8}"
 
 section "R8 operator CLI"
 godfs_client --master "$GODFS_MASTER_ADDR" nodes

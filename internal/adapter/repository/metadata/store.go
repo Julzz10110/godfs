@@ -206,7 +206,27 @@ func (s *Store) RegisterNode(_ context.Context, n domain.ChunkNode) error {
 
 func (s *Store) isAliveAt(id domain.NodeID, at time.Time) bool {
 	st, ok := s.nodeStatus[id]
-	if !ok || st.LastSeen.IsZero() || s.nodeDeadAfter <= 0 {
+	if !ok {
+		return false
+	}
+	if s.nodeDeadAfter <= 0 {
+		return true
+	}
+	if st.LastSeen.IsZero() {
+		return false
+	}
+	return !st.LastSeen.Add(s.nodeDeadAfter).Before(at)
+}
+
+func (s *Store) isAliveForPlacement(id domain.NodeID, at time.Time) bool {
+	st, ok := s.nodeStatus[id]
+	if !ok {
+		return false
+	}
+	if s.nodeDeadAfter <= 0 {
+		return true
+	}
+	if st.LastSeen.IsZero() {
 		return true
 	}
 	return !st.LastSeen.Add(s.nodeDeadAfter).Before(at)
@@ -236,7 +256,7 @@ func (s *Store) pickNodes(n int) ([]domain.ChunkNode, error) {
 		at := time.Now().UTC()
 		var filtered []domain.ChunkNode
 		for _, node := range s.nodes {
-			if s.isAliveAt(node.ID, at) {
+			if s.isAliveForPlacement(node.ID, at) {
 				filtered = append(filtered, node)
 			}
 		}
